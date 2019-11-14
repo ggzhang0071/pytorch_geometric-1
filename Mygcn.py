@@ -4,7 +4,7 @@ from torch_geometric.datasets import Planetoid
 import torch_geometric.transforms as T
 import torch.backends.cudnn as cudnn
 import numpy as np
-from torch_geometric.nn import GCNConv, ChebConv  # noqa
+from torch_geometric.nn import GCNConv, ChebConv,DataParallel # noqa
 import argparse
 import os
 os.chdir('../../..')
@@ -113,7 +113,7 @@ if __name__=="__main__":
             model=Net(dataset,width)
     if use_cuda:
         model.cuda()
-        model = torch.nn.DataParallel(model, device_ids=range(torch.cuda.device_count()))
+        model = DataParallel(model, device_ids=range(torch.cuda.device_count()))
         cudnn.benchmark = True    
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=5e-4) 
