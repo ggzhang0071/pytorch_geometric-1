@@ -167,10 +167,10 @@ def GCN(dataset,params,Epochs,MonteSize,width,lr,savepath):
                 [net,TrainConvergence,TestConvergence,start_epoch]=ResumeModel(model_to_save)
                 if start_epoch>=Epochs-1:
                     continue
-                
-            
+
             else:
-                net=SPlineNet(datasetroot)  
+                net=Net(datasetroot,width)  
+                #net=SPlineNet(datasetroot)
                 
                 
         if dataset=='MNIST':
@@ -181,10 +181,10 @@ def GCN(dataset,params,Epochs,MonteSize,width,lr,savepath):
                 [net,TrainConvergence,TestConvergence,start_epoch]=ResumeModel(model_to_save)
                 if start_epoch>=Epochs-1:
                     continue
-                
-            
+
             else:
-                net=SPlineNet(datasetroot)          
+                net=Net(datasetroot,width) 
+                #net=SPlineNet(datasetroot)
 
         elif dataset=='CIFAR10':
             if resume and os.path.exists(model_to_save):
