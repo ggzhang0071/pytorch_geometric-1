@@ -54,6 +54,16 @@ def ResumeModel(model_to_save):
     start_epoch = checkpoint['epoch']+1
     return net,TrainConvergence,TestConvergence,start_epoch
 
+def FindCutoffPoint(DiagValues,coefficient):
+    for i in range(DiagValues.shape[0]-1):
+        if DiagValues[i]>DiagValues[i+1]*coefficient:
+            CutoffPoint=i+1
+
+    try:
+        return CutoffPoint
+    except:
+        return DiagValues.shape[0] 
+
 def logging(message):
     global  print_to_logging
     if print_to_logging:
@@ -86,26 +96,26 @@ def save_recurrencePlots(net,save_recurrencePlots_file):
 
 
 class Net(torch.nn.Module):
-    def __init__(self,datasetroot, width):
+    def __init__(self,datasetroot,width):
+        self.NumLayers=len(width)
         super(Net,self).__init__()
-        self.conv1 = GCNConv(datasetroot.num_features, width[0], cached=True)
-        self.conv2 = GCNConv(width[0],width[1], cached=True)
-        self.conv3 = GCNConv(width[1],width[2], cached=True)
-        self.conv4 = GCNConv(width[2], datasetroot.num_classes, cached=True)
+        self.layers = nn.ModuleList()
+        self.layers.append(GCNConv(datasetroot.num_features, width[0], cached=True))
+
+        for i in range(self.NumLayers-1):
+            self.layers.append(GCNConv(width[i],width[i+1], cached=True))
+        self.layers.append(GCNConv(width[-1], datasetroot.num_classes, cached=True))
         # self.conv1 = ChebConv(data.num_features, 16, K=2)
         # self.conv2 = ChebConv(16, data.num_features, K=2)
 
     def forward(self,data):
         x, edge_index = data.x, data.edge_index
-        x=self.conv1(x, edge_index)
-        x =x*torch.sigmoid(x)
-        x=self.conv2(x, edge_index)
-        x =x*torch.sigmoid(x)
-        x=self.conv3(x, edge_index)
-        x =x*torch.sigmoid(x)
+        for layer in self.layers[:-1]:
+            x=layer(x, edge_index)
+            x =x*torch.sigmoid(x)
         #x = F.dropout(x, training=self.training)
-        x = self.conv4(x, edge_index)
-        return F.log_softmax(x, dim=1)
+        x = F.log_softmax(self.layers[-1](x,edge_index),dim=1)
+        return x
     
 class SPlineNet(torch.nn.Module):
     def __init__(self,datasetroot, width):
@@ -167,10 +177,10 @@ class topk_pool_Net(torch.nn.Module):
         return x
     
 # Training
-def train(trainloader,testloader,args,net,optimizer,criterion,num_pre_epochs,num_epochs):
+def train(trainloader,args,net,optimizer,criterion,num_epochs):
     net.train()
     train_loss = []
-    for epoch in range(num_pre_epochs):
+    for epoch in range(num_epochs):
         for data_list in trainloader:
             optimizer.zero_grad()
             output = net(data_list)
@@ -179,11 +189,24 @@ def train(trainloader,testloader,args,net,optimizer,criterion,num_pre_epochs,num
             loss.backward()
             train_loss.append(loss.item())
             optimizer.step()
-        test(testloader,net,criterion)
-        
+        #test(testloader,net,criterion)
     return train_loss
 
-
+        
+def RetainNetworkSize(net,ConCoeff):
+    NewNetworksize=[]
+    for layer_name, parameters in net.named_parameters():
+        if "weight" in layer_name:
+            Weight=parameters
+            [U,D,V]=torch.svd(Weight)
+            CutoffPoint=FindCutoffPoint(D,ConCoeff)
+            NewNetworksize.append(CutoffPoint)
+            """NewWeight= torch.mm(Weight,V[:,:CutoffPoint])
+            net.conv2.weight = torch.nn.Parameter( NewWeight)"""
+            print("Original size is {},After SVD is {}".format(Weight.shape[1],CutoffPoint))
+    return NewNetworksize
+        
+    
 
 def ComputeHessian(hessianloader,net,optimizer,criterion):
     net.train()
@@ -222,7 +245,7 @@ def GCN(args,dataset,params,Epochs,num_pre_epochs,num_epochs,MonteSize,width,lr,
         # model 
         root='/data/GraphData/'+dataset
         if dataset=='Cora':
-            model_name="GCN"
+            model_name="PruningGCN"
             datasetroot = Planetoid(root=root, name=dataset).shuffle()
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
@@ -290,13 +313,16 @@ def GCN(args,dataset,params,Epochs,num_pre_epochs,num_epochs,MonteSize,width,lr,
             
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.SGD(net.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
-        for epoch in range(start_epoch, start_epoch+Epochs):
-            if epoch<Epochs:
-                logging('Batch size: {},ConCoeff: {},MonteSize:{},epoch:{}'.format(params[0],params[1],Monte_iter,epoch))
-                TrainLoss=train(trainloader,testloader,args,net,optimizer,criterion,num_pre_epochs,num_epochs)
-                #Hessian=ComputeHessian(hessianloader,net,optimizer,criterion)
-                TrainConvergence.append(statistics.mean(TrainLoss))
-                TestConvergence.append(statistics.mean(test(testloader,net,criterion)))
+        if epoch<Epochs:
+            logging('Batch size: {}, ConCoeff: {}, CutoffCoffi:{}, MonteSize:{}, epoch: {}'.format(params[0],           params[1],params[2],Monte_iter,epoch))
+            PreTrainLoss=train(trainloader,args,net,optimizer,criterion,num_pre_epochs)
+            NewNetworksize=RetainNetworkSize(net,params[2])
+            OptimizedNet=Net(datasetroot,NewNetworksize)  
+            OptimizedNet = DataParallel(OptimizedNet)
+            OptimizedNet = OptimizedNet.to(device)
+            TrainLoss=train(trainloader,args,OptimizedNet,optimizer,criterion,Epochs)
+            TrainConvergence.append(statistics.mean(TrainLoss))
+            TestConvergence.append(statistics.mean(test(testloader,net,criterion)))
             else:
                 break
             if TestConvergence[epoch] < best_loss:
@@ -341,6 +367,7 @@ if __name__=="__main__":
     parser.add_argument('--dataset',default='Cora',type=str, help='dataset to train')
     parser.add_argument('--lr', default=0.1, type=float, help='learning rate') 
     parser.add_argument('--ConCoeff', default=0.1, type=float, help='contraction coefficients')
+    parser.add_argument('--CutoffCoeff', default=0.1, type=float, help='contraction coefficients')
     parser.add_argument('--percent', type=list, default=[0.8, 0.92, 0.991, 0.93],
                         metavar='P', help='pruning percentage (default: 0.8)')
     parser.add_argument('--alpha', type=float, default=5e-4, metavar='L',
@@ -351,13 +378,14 @@ if __name__=="__main__":
                         help='prune weights with l1 regularization instead of cardinality')
     parser.add_argument('--l2', default=False, action='store_true',
                         help='apply l2 regularization')
-    parser.add_argument('--num_pre_epochs', type=int, default=2, metavar='P',
+    parser.add_argument('--num_pre_epochs', type=int, default=10, metavar='P',
                         help='number of epochs to pretrain (default: 3)')
     parser.add_argument('--MonteSize', default=1, type=int, help=' Monte Carlos size')
     parser.add_argument('--gpus', default="0", type=str, help="gpu devices")
     parser.add_argument('--BatchSize', default=512, type=int, help='batch size')
     parser.add_argument('--Epochs', default=200, type=int, help='epochs')
-    parser.add_argument('--num_epochs', type=int, default=2, metavar='N',
+    parser.add_argument('--NumLayers', default=4, type=int, help='Number of layers')
+    parser.add_argument('--num_epochs', type=int, default=200, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--savepath', type=str, default='Results/', help='Path to save results')
     parser.add_argument('--return_output', type=str, default=False, help='Whether output')
@@ -373,8 +401,8 @@ if __name__=="__main__":
     resume=args.resume
     return_output=args.return_output
     save_recurrence_plots=args.save_recurrence_plots
-    width=ContractionLayerCoefficients(args.ConCoeff,3)
-    params=[args.BatchSize,args.ConCoeff]
+    width=ContractionLayerCoefficients(args.ConCoeff,args.NumLayers)
+    params=[args.BatchSize,args.ConCoeff,args.CutoffCoeff]
     
     GCN(args,args.dataset,params,args.Epochs,args.num_pre_epochs,args.num_epochs,args.MonteSize,width,args.lr,args.savepath)
 
