@@ -190,6 +190,7 @@ def train(trainloader,args,net,optimizer,criterion,num_epochs):
             train_loss.append(loss.item())
             optimizer.step()
         #test(testloader,net,criterion)
+        
     return train_loss
 
         
@@ -228,6 +229,7 @@ def test(testloader,net,criterion):
             loss = criterion(output, y)
             test_loss.append(loss.item())
     print('\nTest set: Average loss: {:.4f} \n'.format(test_loss[-1]))
+
     return test_loss
 
 
@@ -313,43 +315,29 @@ def GCN(args,dataset,params,Epochs,num_pre_epochs,num_epochs,MonteSize,width,lr,
             
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.SGD(net.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
-        if epoch<Epochs:
-            logging('Batch size: {}, ConCoeff: {}, CutoffCoffi:{}, MonteSize:{}, epoch: {}'.format(params[0],           params[1],params[2],Monte_iter,epoch))
-            PreTrainLoss=train(trainloader,args,net,optimizer,criterion,num_pre_epochs)
-            NewNetworksize=RetainNetworkSize(net,params[2])
-            OptimizedNet=Net(datasetroot,NewNetworksize)  
-            OptimizedNet = DataParallel(OptimizedNet)
-            OptimizedNet = OptimizedNet.to(device)
-            TrainLoss=train(trainloader,args,OptimizedNet,optimizer,criterion,Epochs)
-            TrainConvergence.append(statistics.mean(TrainLoss))
-            TestConvergence.append(statistics.mean(test(testloader,net,criterion)))
-            else:
-                break
-            if TestConvergence[epoch] < best_loss:
-                logging('Saving..')
-                state = {
-                        'net': net.module,
+        logging('Batch size: {}, ConCoeff: {}, CutoffCoffi:{}, MonteSize:{}'.format(params[0], params[1],params[2],Monte_iter))
+        PreTrainLoss=train(trainloader,args,net,optimizer,criterion,num_pre_epochs)
+        NewNetworksize=RetainNetworkSize(net,params[2])
+        del net
+        OptimizedNet=Net(datasetroot,NewNetworksize)  
+        OptimizedNet = DataParallel(OptimizedNet)
+        OptimizedNet = OptimizedNet.to(device)
+        TrainLoss=train(trainloader,args,OptimizedNet,optimizer,criterion,Epochs)
+        TrainConvergence.append(statistics.mean(TrainLoss))
+        TestConvergence.append(statistics.mean(test(testloader,OptimizedNet,criterion)))
+        
+        # save model
+        logging('Saving..')
+        state = {
+                        'net': OptimizedNet.module,
                         'TrainConvergence': TrainConvergence,
                         'TestConvergence': TestConvergence,
-                        'epoch': epoch,
-                    }
-                if not os.path.isdir('checkpoint'):
-                    os.mkdir('checkpoint')
-                torch.save(state, model_to_save)
-                best_loss = TestConvergence[epoch]
-                if not os.path.exists('./%s' %model_name):
-                    os.makedirs('./%s' %model_name)
-                torch.save(net.module.state_dict(), './%s/%s_%s_%s_%s_pretrain.pth' %(model_name, dataset, model_name,params[0],params[1]))
-            else:
-                pass
-            ## save recurrence plots
-            if epoch%20==0:
-                save_recurrencePlots_file="../Results/RecurrencePlots/RecurrencePlots_{}_{}_BatchSize{}_ConCoeffi{}_epoch{}.png".format(dataset,
-                                                                                                                                     model_name,params[0],params[1],epoch)
-                                   
-                save_recurrencePlots(net,save_recurrencePlots_file)
-          
-    
+                        'epoch': Epochs,
+               }
+        if not os.path.isdir('checkpoint'):
+                os.mkdir('checkpoint')
+        torch.save(state, model_to_save)
+     
         FileName="{}-{}-param_{}_{}-monte_{}".format(dataset,model_name,params[0],params[1],Monte_iter)
         np.save(savepath+'TrainConvergence-'+FileName,TrainConvergence)
         np.save(savepath+'TestConvergence-'+FileName,TestConvergence)
@@ -366,7 +354,7 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser(description='PyTorch Training')
     parser.add_argument('--dataset',default='Cora',type=str, help='dataset to train')
     parser.add_argument('--lr', default=0.1, type=float, help='learning rate') 
-    parser.add_argument('--ConCoeff', default=0.1, type=float, help='contraction coefficients')
+    parser.add_argument('--ConCoeff', default=0.95, type=float, help='contraction coefficients')
     parser.add_argument('--CutoffCoeff', default=0.1, type=float, help='contraction coefficients')
     parser.add_argument('--percent', type=list, default=[0.8, 0.92, 0.991, 0.93],
                         metavar='P', help='pruning percentage (default: 0.8)')
