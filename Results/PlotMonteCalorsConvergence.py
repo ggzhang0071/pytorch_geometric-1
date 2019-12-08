@@ -11,7 +11,7 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,file_constraited,coefficientsFirs
 
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
-            for file in glob.glob("{}-{}*{}*{}*.npy".format(file_constraited,dataset,coefficientsFirst[i],coefficientsSecond[0])):
+            for file in glob.glob("{}-{}*{}_{}*.npy".format(file_constraited,dataset,coefficientsFirst[i],coefficientsSecond[0])):
                 print(file)
                 TrainConvergence=np.load(file)
                 if max(TrainConvergence)>5:
@@ -34,7 +34,7 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,file_constraited,coefficientsFirs
 
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
-            for file in glob.glob("{}-{}*{}*{}*.npy".format(file_constraited,dataset,coefficientsFirst[0],coefficientsSecond[i])):
+            for file in glob.glob("{}-{}*{}_{}*.npy".format(file_constraited,dataset,coefficientsFirst[0],coefficientsSecond[i])):
                 print(file)
                 TrainConvergence=np.load(file)
                 if max(TrainConvergence)>20:

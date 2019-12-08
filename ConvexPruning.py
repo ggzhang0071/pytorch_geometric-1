@@ -41,7 +41,7 @@ def ResumeModel(model_to_save):
     TrainConvergence = checkpoint['TrainConvergence']
     TestConvergence = checkpoint['TestConvergence']
     NewNetworksize=checkpoint['NewNetworksize']
-    start_epoch = checkpoint['epoch']+1
+    start_epoch = checkpoint['epoch']
     return net,NewNetworksize,TrainConvergence,TestConvergence,start_epoch
 
 def FindCutoffPoint(DiagValues,coefficient):
@@ -53,6 +53,13 @@ def FindCutoffPoint(DiagValues,coefficient):
         return CutoffPoint
     except:
         return DiagValues.shape[0] 
+    
+def init_weights(m):
+    if type(m) == nn.Linear:
+        torch.nn.init.orthogonal_(m.weight)
+        m.bias.data.fill_(0.01)
+
+
 
 def logging(message):
     global  print_to_logging
@@ -91,7 +98,6 @@ class Net(torch.nn.Module):
         super(Net,self).__init__()
         self.layers = nn.ModuleList()
         self.layers.append(GCNConv(datasetroot.num_features, width[0], cached=True))
-
         for i in range(self.NumLayers-1):
             self.layers.append(GCNConv(width[i],width[i+1], cached=True))
         self.layers.append(GCNConv(width[-1], datasetroot.num_classes, cached=True))
@@ -137,7 +143,6 @@ class topk_pool_Net(torch.nn.Module):
         self.pool2 = TopKPooling(128, ratio=0.8)
         self.conv3 = GraphConv(128, 128)
         self.pool3 = TopKPooling(128, ratio=0.8)
-
         self.lin1 = torch.nn.Linear(256,width[1])
         self.lin2 = torch.nn.Linear(width[1],width[2])
         self.lin3 = torch.nn.Linear(width[2], datasetroot.num_classes)
@@ -197,19 +202,8 @@ def RetainNetworkSize(net,ConCoeff):
             NewNetworksize.append(CutoffPoint)
             """NewWeight= torch.mm(Weight,V[:,:CutoffPoint])
             net.conv2.weight = torch.nn.Parameter( NewWeight)"""
-            #print("Original size is {},After SVD is {}".format(Weight.shape[1],CutoffPoint))
+            print("Original size is {},After SVD is {}".format(Weight.shape[1],CutoffPoint))
     return NewNetworksize
-        
-    
-
-def ComputeHessian(hessianloader,net,optimizer,criterion):
-    net.train()
-    for data_list in hessianloader:
-        output = net(data_list)
-        y = torch.cat([data.y for data in data_list]).to(output.device)
-        loss = criterion(output, y)
-        hessian_matrix=hessian(loss,data_list[0].x,create_graph=True)
-    return hessian_matrix
 
 
 def test(testloader,net,criterion):
@@ -221,7 +215,7 @@ def test(testloader,net,criterion):
             y = torch.cat([data.y for data in data_list]).to(output.device)
             loss = criterion(output, y)
             test_loss.append(loss.item())
-    print('\nTest set: Average loss: {:.4f} \n'.format(test_loss[-1]))
+    print('\n Test set: Average loss: {:.4f} \n'.format(test_loss[-1]))
 
     return test_loss
 
@@ -311,9 +305,8 @@ def GCN(args,dataset,params,num_pre_epochs,num_epochs,MonteSize,width,lr,savepat
                 PreTrainLoss=train(trainloader,net,optimizer,criterion)
                 NewNetworksize=RetainNetworkSize(net,params[2])
         for epoch in range(start_epoch,num_epochs):
-            #OptimizedNet=Net(datasetroot,NewNetworksize)  
-            OptimizedNet=net
-            #OptimizedNet = DataParallel(OptimizedNet)
+            OptimizedNet=Net(datasetroot,NewNetworksize)  
+            OptimizedNet = DataParallel(OptimizedNet)
             OptimizedNet = OptimizedNet.to(device)
             TrainLoss=train(trainloader,OptimizedNet,optimizer,criterion)
             TrainConvergence.append(statistics.mean(TrainLoss))
@@ -362,7 +355,7 @@ if __name__=="__main__":
     parser.add_argument('--rho', type=float, default=1e-2, metavar='R',
                         help='cardinality weight (default: 1e-2)')
   
-    parser.add_argument('--num_pre_epochs', type=int, default=199, metavar='P',
+    parser.add_argument('--num_pre_epochs', type=int, default=1, metavar='P',
                         help='number of epochs to pretrain (default: 3)')
     parser.add_argument('--MonteSize', default=1, type=int, help=' Monte Carlos size')
     parser.add_argument('--gpus', default="0", type=str, help="gpu devices")
