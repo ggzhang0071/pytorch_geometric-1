@@ -250,14 +250,15 @@ def GCN(args,dataset,params,num_pre_epochs,num_epochs,MonteSize,width,lr,savepat
             datasetroot = Planetoid(root=root, name=dataset).shuffle()
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
-            model_to_save='./checkpoint/{}-{}-param_{}_{}_{}_{}-Mon_{}-ckpt.pth'.format(dataset,model_name,params[0],params[1],params[2],params[3],Monte_iter)
-            if resume=="True" and os.path.exists(model_to_save):
-                [net,NewNetworksize,TrainConvergence,TestConvergence,start_epoch]=ResumeModel(model_to_save)
-                if start_epoch>=num_epochs-1:
-                    continue
-            else:
-                net=Net(datasetroot,width)  
-                net.apply(weight_reset)
+            model_to_save='./checkpoint/{}-{}-param_{}_{}_{}_{}-ckpt.pth'.format(dataset,model_name,params[0],params[1],params[2],params[3])
+            if Monte_iter==0:
+                if resume==True and os.path.exists(model_to_save) :
+                    [net,NewNetworksize,TrainConvergence,TestConvergence,start_epoch]=ResumeModel(model_to_save)
+                    if start_epoch>=num_pre_epochs-1:
+                        continue
+                else:
+                    net=Net(datasetroot,width)  
+                    #net.apply(weight_reset)
 
         
         elif dataset=='ENZYMES' or dataset=='MUTAG':
@@ -265,7 +266,7 @@ def GCN(args,dataset,params,num_pre_epochs,num_epochs,MonteSize,width,lr,savepat
             datasetroot=TUDataset(root,name=dataset)
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
-            model_to_save='./checkpoint/{}-{}-param_{}_{}_{}_{}-Mon_{}-ckpt.pth'.format(dataset,model_name,params[0],params[1],params[2],params[3],Monte_iter)
+            model_to_save='./checkpoint/{}-{}-param_{}_{}_{}_{}-ckpt.pth'.format(dataset,model_name,params[0],params[1],params[2],params[3])
             if resume=="True" and os.path.exists(model_to_save):
                 [net,TrainConvergence,TestConvergence,start_epoch]=ResumeModel(model_to_save)
                 if start_epoch>=num_epochs-1:
@@ -300,37 +301,35 @@ def GCN(args,dataset,params,num_pre_epochs,num_epochs,MonteSize,width,lr,savepat
         else:
             raise Exception("The dataset is:{}, it isn't existed.".format(dataset))
         
-        
-        
-        print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
-        net = DataParallel(net)
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        net = net.to(device)
-            #cudnn.benchmark = True
-        criterion = nn.CrossEntropyLoss()
-        optimizer = optim.SGD(net.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
-
-        logging('Batch size: {}, Number of layers:{} ConCoeff: {}, CutoffCoffi:{}, MonteSize:{}'.format(params[0], params[1],params[2],params[3],Monte_iter))
+       
         if Monte_iter==0:
+            print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
+            net = DataParallel(net)
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            net = net.to(device)
+                #cudnn.benchmark = True
+            criterion = nn.CrossEntropyLoss()
+            optimizer = optim.SGD(net.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
+            logging('Batch size: {}, Number of layers:{} ConCoeff: {}, CutoffCoffi:{}, MonteSize:{}'.format(params[0], params[1],params[2],params[3],Monte_iter))
             for epoch in range(num_pre_epochs):
                 PreTrainLoss=train(trainloader,net,optimizer,criterion)
                 print('\nEpoch: {},  Average pre-tain loss: {:.4f} \n'.format(epoch,PreTrainLoss[0]))
                 NewNetworksize=RetainNetworkSize(net,params[2])
             del net
-            torch.cuda.empty_cache()
+
+        #NewNetworksize=width
+        OptimizedNet=Net(datasetroot,NewNetworksize[0:-1])  
+        #OptimizedNet.apply(init_weights)
+
+        OptimizedNet = DataParallel(OptimizedNet)
+        OptimizedNet = OptimizedNet.to(device)
+            #OptimizedNet=net
+        cudnn.benchmark = True
+        criterionNew = nn.CrossEntropyLoss()
+        optimizerNew = optim.SGD(OptimizedNet.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
+            
         for epoch in range(start_epoch,num_epochs):
-            #OptimizedNet=net
 
-            #NewNetworksize=width
-            OptimizedNet=Net(datasetroot,NewNetworksize[0:-1])  
-            #OptimizedNet.apply(init_weights)
-
-            OptimizedNet = DataParallel(OptimizedNet)
-            OptimizedNet = OptimizedNet.to(device)
-            #OptimizedNet=net
-            cudnn.benchmark = True
-            criterionNew = nn.CrossEntropyLoss()
-            optimizerNew = optim.SGD(OptimizedNet.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
             print('\n Epoch: {}, Average tain loss: {:.4f} \n'.format(epoch,TrainLoss[0]))
             TrainConvergence.append(statistics.mean(TrainLoss))
@@ -379,17 +378,18 @@ if __name__=="__main__":
     parser.add_argument('--rho', type=float, default=1e-2, metavar='R',
                         help='cardinality weight (default: 1e-2)')
   
-    parser.add_argument('--num_pre_epochs', type=int, default=200, metavar='P',
+    parser.add_argument('--num_pre_epochs', type=int, default=30, metavar='P',
                         help='number of epochs to pretrain (default: 3)')
+    parser.add_argument('--num_epochs', type=int, default=200, metavar='N',
+                        help='number of epochs to train (default: 10)')
     parser.add_argument('--MonteSize', default=1, type=int, help=' Monte Carlos size')
     parser.add_argument('--gpus', default="0", type=str, help="gpu devices")
     parser.add_argument('--BatchSize', default=512, type=int, help='batch size')
     parser.add_argument('--NumLayers', default=4, type=int, help='Number of layers')
-    parser.add_argument('--num_epochs', type=int, default=200, metavar='N',
-                        help='number of epochs to train (default: 10)')
+
     parser.add_argument('--savepath', type=str, default='Results/', help='Path to save results')
     parser.add_argument('--return_output', type=str, default=False, help='Whether output')
-    parser.add_argument('--resume', '-r', type=str,default=False, help='resume from checkpoint')
+    parser.add_argument('--resume', '-r', type=str,default=True, help='resume from checkpoint')
     parser.add_argument('--print_device_useage', type=str, default=False, help='Whether print gpu useage')
     parser.add_argument('--print_to_logging', type=str, default=True, help='Whether print')
     parser.add_argument('--save_recurrence_plots', type=str, default=False, help='Whether print')
@@ -408,4 +408,3 @@ if __name__=="__main__":
     GCN(args,args.dataset,params,args.num_pre_epochs,args.num_epochs,args.MonteSize,width,args.lr,args.savepath)
 
     
-
