@@ -305,9 +305,10 @@ def GCN(args,dataset,params,num_pre_epochs,num_epochs,MonteSize,width,lr,savepat
                 PreTrainLoss=train(trainloader,net,optimizer,criterion)
                 NewNetworksize=RetainNetworkSize(net,params[2])
         for epoch in range(start_epoch,num_epochs):
-            OptimizedNet=Net(datasetroot,NewNetworksize)  
-            OptimizedNet = DataParallel(OptimizedNet)
-            OptimizedNet = OptimizedNet.to(device)
+            OptimizedNet=net
+            #OptimizedNet=Net(datasetroot,NewNetworksize)  
+            #OptimizedNet = DataParallel(OptimizedNet)
+            #OptimizedNet = OptimizedNet.to(device)
             TrainLoss=train(trainloader,OptimizedNet,optimizer,criterion)
             TrainConvergence.append(statistics.mean(TrainLoss))
             TestConvergence.append(statistics.mean(test(testloader,OptimizedNet,criterion)))
