@@ -2,11 +2,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os,glob
 
-def PlotMonteCalorsTimesConvergenceNpy(dataset,file_constraited,coefficientsFirst,coefficientsSecond,save_png_name,start_plot,epochs):
+def PlotMonteCalorsTimesConvergenceNpy(dataset,file_constraited,coefficientsFirst,coefficientsSecond,save_png_name,start_plot,epochs,*args):
+    Legend=args
     x=np.linspace(start_plot,start_plot+epochs-1,num=epochs).tolist()
     if len(coefficientsFirst)>1:
         coefficients=coefficientsFirst
-        parts=round(len(coefficients)/2)+1
+        parts=round(len(coefficients)/2)
         plt.style.use('ggplot')  
 
         for i in range(len(coefficients)):
@@ -57,7 +58,7 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,file_constraited,coefficientsFirs
 
     plt.xlabel('Epoches')
     plt.ylabel('Loss')
-    plt.legend(tuple(coefficients))
+    plt.legend(tuple(Legend))
     plt.savefig(save_png_name,dpi=600)
 
 #def PlotMonteCalorsTimesConvergencePth(coefficients,file_path,parts,save_png_name,start_plot):
