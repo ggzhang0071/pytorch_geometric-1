@@ -190,7 +190,7 @@ def RetainNetworkSize(net,ConCoeff):
     NewNetworksize=[]
     for layer_name, Weight in net.named_parameters():
         if ("weight" in layer_name) and ("layers" in layer_name):
-            print(layer_name)
+            #print(layer_name)
             [U,D,V]=torch.svd(Weight)
             CutoffPoint=FindCutoffPoint(D,ConCoeff)
             NewNetworksize.append(CutoffPoint)
@@ -235,7 +235,7 @@ def test(testloader,net,criterion):
     return test_loss
 
 
-def GCN(args,dataset,params,num_pre_epochs,num_epochs,MonteSize,width,lr,savepath):
+def GCN(dataset,params,num_pre_epochs,num_epochs,MonteSize,PruningTimes,width,lr,savepath):
     Batch_size=int(params[0]) 
     for Monte_iter in range(MonteSize):
         # Data
@@ -252,11 +252,11 @@ def GCN(args,dataset,params,num_pre_epochs,num_epochs,MonteSize,width,lr,savepat
             datasetroot = Planetoid(root=root, name=dataset).shuffle()
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
-            model_to_save='./checkpoint/{}-{}-param_{}_{}_{}_{}-ckpt.pth'.format(dataset,model_name,params[0],params[1],params[2],params[3])
+            model_to_save='./checkpoint/{}-{}-param_{}_{}_{}_{}-Monte_{}-ckpt.pth'.format(dataset,model_name,params[0],params[1],params[2],params[3],Monte_iter)
             if Monte_iter==0:
                 if resume==True and os.path.exists(model_to_save) :
-                    [net,NewNetworksize,TrainConvergence,TestConvergence,start_epoch]=ResumeModel(model_to_save)
-                    if start_epoch>=num_pre_epochs-1:
+                    [OptimizedNet,NewNetworksize,TrainConvergence,TestConvergence,start_epoch]=ResumeModel(model_to_save)
+                    if start_epoch>=num_epochs-1:
                         continue
                 else:
                     net=Net(datasetroot,width)  
@@ -269,13 +269,14 @@ def GCN(args,dataset,params,num_pre_epochs,num_epochs,MonteSize,width,lr,savepat
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
             model_to_save='./checkpoint/{}-{}-param_{}_{}_{}_{}-ckpt.pth'.format(dataset,model_name,params[0],params[1],params[2],params[3])
-            if resume==True and os.path.exists(model_to_save):
-                [net,NewNetworksize,TrainConvergence,TestConvergence,start_epoch]=ResumeModel(model_to_save)
-                if start_epoch>=num_epochs-1:
-                    continue
+            if Monte_iter==0:
+                if resume==True and os.path.exists(model_to_save):
+                    [OptimizedNet,NewNetworksize,TrainConvergence,TestConvergence,start_epoch]=ResumeModel(model_to_save)
+                    if start_epoch>=num_epochs-1:
+                        continue
 
-            else:
-                net=topk_pool_Net(datasetroot,width)   
+                else:
+                    net=topk_pool_Net(datasetroot,width)          
                
                 
         elif dataset=='MNIST':
@@ -304,7 +305,7 @@ def GCN(args,dataset,params,num_pre_epochs,num_epochs,MonteSize,width,lr,savepat
             raise Exception("The dataset is:{}, it isn't existed.".format(dataset))
         
        
-        if Monte_iter==0:
+        if Monte_iter==0 and start_epoch==0:
             print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
             net = DataParallel(net)
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -316,45 +317,51 @@ def GCN(args,dataset,params,num_pre_epochs,num_epochs,MonteSize,width,lr,savepat
             for epoch in range(num_pre_epochs):
                 PreTrainLoss=train(trainloader,net,optimizer,criterion)
                 print('\nEpoch: {},  Average pre-tain loss: {:.4f} \n'.format(epoch,PreTrainLoss[0]))
-            NewNetworksize=RetainNetworkSize(net,params[2])
-            #del net
+                NewNetworksize=RetainNetworkSize(net,params[2])
+            del net
 
         #NewNetworksize=width
-        if dataset=='Cora':
-            OptimizedNet=Net(datasetroot,NewNetworksize[0:-1])  
-        elif dataset=='ENZYMES' or dataset=='MUTAG':
-            NewNetworkSizeAdjust=NewNetworksize[0:-1]
-            NewNetworkSizeAdjust[0]=width[0]-1
-            OptimizedNet=topk_pool_Net(datasetroot,NewNetworkSizeAdjust) 
-            
-        #OptimizedNet.apply(init_weights)
+        
+        for pruningIter in range(PruningTimes):
+            if pruningIter>0:
+                [OptimizedNet,NewNetworksize,TrainConvergence,TestConvergence,start_epoch]=ResumeModel(model_to_save)
+            elif dataset=='Cora' and start_epoch==0:
+                OptimizedNet=Net(datasetroot,NewNetworksize[0:-1])  
+            elif dataset=='ENZYMES' and start_epoch==0:
+                NewNetworkSizeAdjust=NewNetworksize[0:-1]
+                NewNetworkSizeAdjust[0]=width[0]-1
+                OptimizedNet=topk_pool_Net(datasetroot,NewNetworkSizeAdjust) 
+               
 
-        OptimizedNet = DataParallel(OptimizedNet)
-        OptimizedNet = OptimizedNet.to(device)
-        cudnn.benchmark = True
-        criterionNew = nn.CrossEntropyLoss()
-        optimizerNew = optim.SGD(OptimizedNet.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
-            
-        for epoch in range(start_epoch,num_epochs):
-            TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
-            print('\n Epoch: {}, Average tain loss: {:.4f} \n'.format(epoch,TrainLoss[0]))
-            TrainConvergence.append(statistics.mean(TrainLoss))
-            TestConvergence.append(statistics.mean(test(testloader,OptimizedNet,criterion)))
+            OptimizedNet = DataParallel(OptimizedNet)
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            OptimizedNet = OptimizedNet.to(device)
+            cudnn.benchmark = True
+            criterionNew = nn.CrossEntropyLoss()
+            optimizerNew = optim.SGD(OptimizedNet.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
+            criterion = nn.CrossEntropyLoss()
 
-            # save model
-            if TestConvergence[epoch] < best_loss:
-                logging('Saving..')
-                state = {
-                                'net': OptimizedNet.module,
-                                'TrainConvergence': TrainConvergence,
-                                'TestConvergence': TestConvergence,
-                                'epoch': num_epochs,
-                                'NewNetworksize':NewNetworksize[0:-1],
-                       }
-                if not os.path.isdir('checkpoint'):
-                    os.mkdir('checkpoint')
-                torch.save(state, model_to_save)
-                best_loss = TestConvergence[epoch]
+            for epoch in range(start_epoch,num_epochs):
+                TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
+                print('\n Epoch: {}, Average tain loss: {:.4f} \n'.format(epoch,TrainLoss[0]))
+                TrainConvergence.append(statistics.mean(TrainLoss))
+                NewNetworksize=RetainNetworkSize(OptimizedNet,params[2])
+                TestConvergence.append(statistics.mean(test(testloader,OptimizedNet,criterion)))
+
+                # save model
+                if TestConvergence[epoch] < best_loss:
+                    logging('Saving..')
+                    state = {
+                                    'net': OptimizedNet.module,
+                                    'TrainConvergence': TrainConvergence,
+                                    'TestConvergence': TestConvergence,
+                                    'epoch': num_epochs,
+                                    'NewNetworksize':NewNetworksize[0:-1],
+                           }
+                    if not os.path.isdir('checkpoint'):
+                        os.mkdir('checkpoint')
+                    torch.save(state, model_to_save)
+                    best_loss = TestConvergence[epoch]
         
                 ## save recurrence plots
             """if epoch%20==0:
@@ -384,11 +391,12 @@ if __name__=="__main__":
     parser.add_argument('--rho', type=float, default=1e-2, metavar='R',
                         help='cardinality weight (default: 1e-2)')
   
-    parser.add_argument('--num_pre_epochs', type=int, default=30, metavar='P',
+    parser.add_argument('--num_pre_epochs', type=int, default=10, metavar='P',
                         help='number of epochs to pretrain (default: 3)')
-    parser.add_argument('--num_epochs', type=int, default=200, metavar='N',
+    parser.add_argument('--num_epochs', type=int, default=30, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--MonteSize', default=1, type=int, help=' Monte Carlos size')
+    parser.add_argument('--PruningTimes', default=2, type=int, help='Pruning times')
     parser.add_argument('--gpus', default="0", type=str, help="gpu devices")
     parser.add_argument('--BatchSize', default=512, type=int, help='batch size')
     parser.add_argument('--NumLayers', default=4, type=int, help='Number of layers')
@@ -411,6 +419,6 @@ if __name__=="__main__":
     #params=[args.BatchSize,args.NumLayers,args.args.ConCoeff,args.CutoffCoeff]
     params=[args.BatchSize,args.NumLayers,args.ConCoeff,args.CutoffCoeff]
     
-    GCN(args,args.dataset,params,args.num_pre_epochs,args.num_epochs,args.MonteSize,width,args.lr,args.savepath)
+    GCN(args.dataset,params,args.num_pre_epochs,args.num_epochs,args.MonteSize,args.PruningTimes,width,args.lr,args.savepath)
 
     
