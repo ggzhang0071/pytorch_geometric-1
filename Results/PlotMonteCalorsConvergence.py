@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import os,glob
+import seaborn as sns
 
 def PlotMonteCalorsTimesConvergenceNpy(dataset,file_constraited,coefficientsFirst,coefficientsSecond,save_png_name,start_plot,epochs,*args):
     Legend=args
@@ -14,19 +15,24 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,file_constraited,coefficientsFirs
             TrainConvergenceAll=[]
             for file in glob.glob("{}-{}*{}_{}*.npy".format(file_constraited,dataset,coefficientsFirst[i],coefficientsSecond[0])):
                 print(file)
-                TrainConvergence=np.load(file)
+                TrainConvergence=np.load(file).tolist()
                 if max(TrainConvergence)>5:
                     print("{} maximum is:{}".format(file,max(TrainConvergence)))
                     os.remove(file)
                 if len(TrainConvergence)>40 and max(TrainConvergence)<=5:
                     TrainConvergenceAll.append(TrainConvergence)
             print("coefficient of {} num is: {}".format(coefficients[i],len(TrainConvergenceAll)))            
-            TestConvergenceAvg=[sum(x)/len(TrainConvergenceAll) for x in zip(*TrainConvergenceAll)]
-            TrainLossEpoches=TestConvergenceAvg
+            mu = np.array(TrainConvergenceAll).mean(axis=0)
+            standard_dev = np.array(TrainConvergenceAll).std(axis=0)
+            
             if i<parts:
-                plt.plot(x,TrainLossEpoches[start_plot:start_plot+epochs], lw=1.5)
+                plt.plot(x,mu[start_plot:start_plot+epochs], lw=1.5)
+                
             else:
-                plt.plot(x,TrainLossEpoches[start_plot:start_plot+epochs],'--', lw=1.5)
+                plt.plot(x,mu[start_plot:start_plot+epochs],'--', lw=1.5)
+            
+            plt.fill_between(x, (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],alpha=0.5)   
+ 
             
     elif len(coefficientsSecond)>1:
         coefficients=coefficientsSecond
@@ -37,19 +43,24 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,file_constraited,coefficientsFirs
             TrainConvergenceAll=[]
             for file in glob.glob("{}-{}*{}_{}*.npy".format(file_constraited,dataset,coefficientsFirst[0],coefficientsSecond[i])):
                 print(file)
-                TrainConvergence=np.load(file)
+                TrainConvergence=np.load(file).tolist()
                 if max(TrainConvergence)>20:
                     print("{} maximum is:{}".format(file,max(TrainConvergence)))
                     os.remove(file)
                 if len(TrainConvergence)>40 and max(TrainConvergence)<=20:
                     TrainConvergenceAll.append(TrainConvergence)
             print("coefficient of {} num is: {}".format(coefficients[i],len(TrainConvergenceAll)))            
-            TestConvergenceAvg=[sum(x)/len(TrainConvergenceAll) for x in zip(*TrainConvergenceAll)]
-            TrainLossEpoches=TestConvergenceAvg
+            mu = np.array(TrainConvergenceAll).mean(axis=0)
+            standard_dev = np.array(TrainConvergenceAll).std(axis=0)
+            
             if i<parts:
-                plt.plot(x,TrainLossEpoches[start_plot:start_plot+epochs], lw=1.5)
+                plt.plot(x,mu[start_plot:start_plot+epochs], lw=1.5)
+                
             else:
-                plt.plot(x,TrainLossEpoches[start_plot:start_plot+epochs],'--', lw=1.5)
+                plt.plot(x,mu[start_plot:start_plot+epochs],'--', lw=1.5)
+            
+            plt.fill_between(x, (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],alpha=0.5)   
+ 
         
     else:
         raise Exception ("Wrong input, please check")
