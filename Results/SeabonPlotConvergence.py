@@ -2,17 +2,22 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os,glob
 import seaborn as sns
-import matplotlib.style as style 
-style.available
-sns.set_context('paper')
-sns.set()
-def PlotMonteCalorsTimesConvergenceNpy(dataset,file_constraited,coefficientsFirst,coefficientsSecond,save_png_name,start_plot,epochs,*args):
+import pandas as pd
+
+def PlotMonteCalorsTimesConvergenceNpySeaborn(dataset,file_constraited,coefficientsFirst,coefficientsSecond,save_png_name,start_plot,epochs,*args):
     Legend=args
+    #plt.figure(figsize = (16,9)) # figure size with ratio 16:9
+    sns.set(style='darkgrid',) # background darkgrid style of graph 
+    sns.color_palette("dark", 10)
+
+    #sns.set(style="ticks")
+    sns.set_context("notebook", font_scale=1.5, rc={"lines.linewidth": 2.5})
+   
     x=np.linspace(start_plot,start_plot+epochs-1,num=epochs).tolist()
     if len(coefficientsFirst)>1:
         coefficients=coefficientsFirst
         parts=round(len(coefficients)/2)
-        plt.style.use('seaborn-darkgrid')  
+
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
             for file in glob.glob("{}-{}*{}_{}*.npy".format(file_constraited,dataset,coefficientsFirst[i],coefficientsSecond[0])):
@@ -21,48 +26,48 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,file_constraited,coefficientsFirs
                 if max(TrainConvergence)>5:
                     print("{} maximum is:{}".format(file,max(TrainConvergence)))
                     os.remove(file)
-                if len(TrainConvergence)>40 and max(TrainConvergence)<=5:
+                elif len(TrainConvergence)>40:
                     TrainConvergenceAll.append(TrainConvergence)
-            print("coefficient of {} num is: {}".format(coefficients[i],len(TrainConvergenceAll)))            
-            mu = np.array(TrainConvergenceAll).mean(axis=0)
-            standard_dev = np.array(TrainConvergenceAll).std(axis=0)
+            print("coefficient of {} num is: {}".format(coefficients[i],len(TrainConvergenceAll)))     
+            df = pd.DataFrame(TrainConvergenceAll,index=range(0,len(TrainConvergenceAll)))
+            ax = sns.tsplot(data=df.values) #, err_style="unit_traces")
+            mu = df.mean(axis=0)
+            standard_dev = df.std(axis=0)
+            #ax.errorbar(x, mu, yerr=standard_dev, fmt='-o') #fmt=None to plot bars only
             
             if i<parts:
-                plt.plot(x,mu[start_plot:start_plot+epochs], lw=1.5)
+                sns.lineplot(x=x,y=mu[start_plot:start_plot+epochs])
                 
             else:
-                plt.plot(x,mu[start_plot:start_plot+epochs],'--', lw=1.5)
+                sns.lineplot(x=x,y=mu[start_plot:start_plot+epochs])
             
-            plt.fill_between(x, (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],alpha=0.5)   
- 
             
     elif len(coefficientsSecond)>1:
         coefficients=coefficientsSecond
-        parts=round(len(coefficients)/2)+1
-        plt.style.use('seaborn-darkgrid')  
+        parts=round(len(coefficients)/2)
 
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
             for file in glob.glob("{}-{}*{}_{}*.npy".format(file_constraited,dataset,coefficientsFirst[0],coefficientsSecond[i])):
                 print(file)
                 TrainConvergence=np.load(file).tolist()
-                if max(TrainConvergence)>20:
+                if max(TrainConvergence)>5:
                     print("{} maximum is:{}".format(file,max(TrainConvergence)))
                     os.remove(file)
-                if len(TrainConvergence)>40 and max(TrainConvergence)<=20:
+                elif len(TrainConvergence)>40:
                     TrainConvergenceAll.append(TrainConvergence)
             print("coefficient of {} num is: {}".format(coefficients[i],len(TrainConvergenceAll)))            
-            mu = np.array(TrainConvergenceAll).mean(axis=0)
-            standard_dev = np.array(TrainConvergenceAll).std(axis=0)
+            df = pd.DataFrame(TrainConvergenceAll,index=range(0,len(TrainConvergenceAll)))
+            ax = sns.tsplot(data=df.values) #, err_style="unit_traces")
+            mu = df.mean(axis=0)
+            standard_dev  = df.std(axis=0)
+            #ax.errorbar(x, mu, yerr=standard_dev, fmt='-o') #fmt=None to plot bars only
             
             if i<parts:
-                plt.plot(x,mu[start_plot:start_plot+epochs], lw=1.5)
+                sns.lineplot(x=x,y=mu[start_plot:start_plot+epochs])
                 
             else:
-                plt.plot(x,mu[start_plot:start_plot+epochs],'--', lw=1.5)
-            
-            plt.fill_between(x, (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],alpha=0.5)   
- 
+                sns.lineplot(x=x,y=mu[start_plot:start_plot+epochs])
         
     else:
         raise Exception ("Wrong input, please check")
