@@ -184,6 +184,21 @@ class ChebConvNet(torch.nn.Module):
     
 class SPlineNet(torch.nn.Module):
     def __init__(self,datasetroot, width):
+        super(SPlineNet, self).__init__()
+        self.conv1 = SplineConv(datasetroot.num_features, 16, dim=1, kernel_size=2)
+        self.conv2 = SplineConv(16, datasetroot.num_classes, dim=1, kernel_size=2)
+
+    def forward(self,data):
+        x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
+        x = F.dropout(x, training=self.training)
+        x = F.elu(self.conv1(x, edge_index, edge_attr))
+        x = F.dropout(x, training=self.training)
+        x = self.conv2(x, edge_index, edge_attr)
+        return F.log_softmax(x, dim=1)
+   
+    
+"""class SPlineNet(torch.nn.Module):
+    def __init__(self,datasetroot, width):
         self.NumLayers=len(width)
         super(SPlineNet,self).__init__()
         self.layers = nn.ModuleList()
@@ -193,9 +208,9 @@ class SPlineNet(torch.nn.Module):
             self.layers.append(layer)
         self.layers.append(SplineConv(width[-1], datasetroot.num_classes,dim=2, kernel_size=5))
 
-        """self.lin1 = torch.nn.Linear(64, width[0])
+        self.lin1 = torch.nn.Linear(64, width[0])
         self.lin2 = torch.nn.Linear(width[0],width[1])
-        self.lin3 = torch.nn.Linear(width[1], datasetroot.num_classes)"""
+        self.lin3 = torch.nn.Linear(width[1], datasetroot.num_classes)
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
@@ -205,7 +220,7 @@ class SPlineNet(torch.nn.Module):
             x =x*torch.sigmoid(x)
         x = F.log_softmax(self.layers[-1](x,edge_index),dim=1)
         return x
-        """ # two-dimensional edge attributes
+        # two-dimensional edge attributes
         x = F.relu(self.conv1(x, edge_index,pseudo=pseudo))
         x = F.relu(self.conv2(x, edge_index,pseudo=pseudo))
         x = global_mean_pool(x, data.batch)
@@ -307,7 +322,7 @@ def test(testloader,net,criterion):
     return test_loss
 
 
-def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,MonteSize,savepath):
+def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,optimizerName,MonteSize,savepath):
     Batch_size=int(params[0]) 
     for Monte_iter in range(MonteSize):
         # Data
@@ -394,7 +409,6 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,MonteSize,sav
         
            OptimizedNet=ChooseModel(modelName,datasetroot,NewNetworksize[0:-1])
 
-
             
         elif dataset=='ENZYMES' or dataset=='MUTAG':
             NewNetworkSizeAdjust=NewNetworksize[0:-1]
@@ -407,8 +421,10 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,MonteSize,sav
         OptimizedNet = OptimizedNet.to(device)
         cudnn.benchmark = True
         criterionNew = nn.CrossEntropyLoss()
-        optimizerNew = optim.SGD(OptimizedNet.parameters(), lr=params[3], momentum=0.9, weight_decay=5e-4)
-        #optimizerNew = optim.Adam(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
+        if optimizerName =="SGD":
+            optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], momentum=0.9, weight_decay=5e-4)
+        elif optimizerName =="Adam":
+            optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
     
         for epoch in range(start_epoch,num_epochs):
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
@@ -458,6 +474,8 @@ if __name__=="__main__":
     parser.add_argument('--CutoffCoeff', default=0.1, type=float, help='contraction coefficients')
     parser.add_argument('--rho', type=float, default=1e-2, metavar='R',
                         help='cardinality weight (default: 1e-2)')
+    parser.add_argument('--optimizer',default='SGD',type=str, help='optimizer to train')
+
   
     parser.add_argument('--num_pre_epochs', type=int, default=30, metavar='P',
                         help='number of epochs to pretrain (default: 3)')
@@ -486,6 +504,6 @@ if __name__=="__main__":
     #params=[args.BatchSize,args.NumLayers,args.args.ConCoeff,args.CutoffCoeff]
     params=[args.BatchSize,args.NumLayers,args.ConCoeff,args.lr]
     
-    TrainingNet(args.dataset,args.modelName,params,args.num_pre_epochs,args.num_epochs,args.MonteSize,args.savepath)
+    TrainingNet(args.dataset,args.modelName,params,args.num_pre_epochs,args.num_epochs,args.optimizer,args.MonteSize,args.savepath)
 
     
