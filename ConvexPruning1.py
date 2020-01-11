@@ -13,7 +13,7 @@ from torch_geometric.data import DataListLoader,DataLoader
 import statistics
 import torchvision
 import torchvision.transforms as transforms
-from torch_geometric.nn import GCNConv, ChebConv,SplineConv,global_mean_pool,GraphConv, AGNNConv,TopKPooling,DataParallel
+from torch_geometric.nn import GCNConv, ChebConv,SplineConv,global_mean_pool,GraphConv, TopKPooling,DataParallel
 #from torch_spline_conv import SplineConv
 from pyts.image import RecurrencePlot
 from torch_geometric.datasets import MNISTSuperpixels,Planetoid,TUDataset
@@ -23,30 +23,14 @@ import numpy as np
 import argparse
 import os,sys
 
-def ChooseModel(model_name,datasetroot,width):
-    if model_name=="GCN":  
-        net=GCN(datasetroot,width) 
-    elif model_name=="SPlineNet":     
-        net=SPlineNet(datasetroot,width)
-    elif model_name=="ChebConvNet":
-        net=ChebConvNet(datasetroot,width)  
-    elif model_name=="AGNNNet":
-        net=AGNNNet(datasetroot,width)  
-    
-    else:
-        raise Exception("model not support, Choose GCN, or SPlineNet or  ChebConvNet")
-    return net
 
-def ContractionLayerCoefficients(num_features,*args):
-    Numlayers,alpha=args
+def ContractionLayerCoefficients(alpha,Numlayers):
     width=[]
-    tmpOld=np.random.randint(num_features*alpha,num_features)
+    tmpOld=np.random.randint(1433*alpha,1433)
     for k in range(Numlayers):
         tmpNew=np.random.randint(tmpOld*alpha,tmpOld)
         width.append(tmpNew)
         tmpOld=tmpNew
-    width =[128,256,512,526]
-
     return width
 
 def ResumeModel(model_to_save):
@@ -116,7 +100,16 @@ def save_recurrencePlots(net,save_recurrencePlots_file):
     else:
         pass 
 
-
+def ChooseModel(model_name,datasetroot,width):
+    if model_name=="GCN":  
+        net=GCN(datasetroot,width) 
+    elif model_name=="SPlineNet":     
+        net=SPlineNet(datasetroot,width)
+    elif model_name=="ChebConvNet":
+        net=ChebConvNet(datasetroot,width)          
+    else:
+        raise Exception("model not support, Choose GCN, or SPlineNet or  ChebConvNet")
+    return net
                       #net.apply(weight_reset)
 
 class GCN(torch.nn.Module):
@@ -138,44 +131,29 @@ class GCN(torch.nn.Module):
         for layer in self.layers[:-1]:
             x=layer(x, edge_index)
             x =x*torch.sigmoid(x)
+            
         #x = F.dropout(x, training=self.training)
         x = F.log_softmax(self.layers[-1](x,edge_index),dim=1)
         return x
-
-class AGNNNet(torch.nn.Module):
-    def __init__(self,datasetroot,width):
-        super(AGNNNet, self).__init__()
-        self.lin1 = torch.nn.Linear(datasetroot.num_features, 16)
-        self.prop1 = AGNNConv(requires_grad=False)
-        self.prop2 = AGNNConv(requires_grad=True)
-        self.lin2 = torch.nn.Linear(16, datasetroot.num_classes)
-
-    def forward(self,data):
-        x = F.dropout(data.x, training=self.training)
-        x = F.relu(self.lin1(x))
-        x = self.prop1(x, data.edge_index)
-        x = self.prop2(x, data.edge_index)
-        x = F.dropout(x, training=self.training)
-        x = self.lin2(x)
-        return F.log_softmax(x, dim=1)    
+    
     
 class ChebConvNet(torch.nn.Module):
     def __init__(self,datasetroot,width):
         self.NumLayers=len(width)
         super(ChebConvNet,self).__init__()
         self.layers = nn.ModuleList()
-        self.layers.append(GraphConv(datasetroot.num_features,width[0]))
+        self.layers.append(ChebConv(datasetroot.num_features, width[0], K=2))
         for i in range(self.NumLayers-1):
-            layer=GraphConv(width[i],width[i+1])
+            layer=ChebConv(width[i],width[i+1], K=2)
             nn.init.xavier_uniform_(layer.weight)
             self.layers.append(layer)
 
-        self.layers.append(GraphConv(width[-1], datasetroot.num_classes))
+        self.layers.append(ChebConv(width[-1], datasetroot.num_classes, K=2))
 
     def forward(self,data):
         x, edge_index = data.x, data.edge_index
         for layer in self.layers[:-1]:
-            x=layer(x,edge_index)
+            x=layer(edge_index,x)
             x =x*torch.sigmoid(x)
         #x = F.dropout(x, training=self.training)
         x = F.log_softmax(self.layers[-1](x,edge_index),dim=1)
@@ -184,37 +162,24 @@ class ChebConvNet(torch.nn.Module):
     
 class SPlineNet(torch.nn.Module):
     def __init__(self,datasetroot, width):
-        self.NumLayers=len(width)
         super(SPlineNet,self).__init__()
-        self.layers = nn.ModuleList()
-        self.layers.append(SplineConv(datasetroot.num_features, width[0], dim=2, kernel_size=5))
-        for i in range(self.NumLayers-1):
-            layer= SplineConv(width[i],width[i+1], dim=2, kernel_size=5)
-            self.layers.append(layer)
-        self.layers.append(SplineConv(width[-1], datasetroot.num_classes,dim=2, kernel_size=5))
-
-        """self.lin1 = torch.nn.Linear(64, width[0])
+        self.conv1 = SplineConv(datasetroot.num_features, 32, dim=2, kernel_size=5)
+        self.conv2 = SplineConv(32, 64, dim=2, kernel_size=5)
+        self.lin1 = torch.nn.Linear(64, width[0])
         self.lin2 = torch.nn.Linear(width[0],width[1])
-        self.lin3 = torch.nn.Linear(width[1], datasetroot.num_classes)"""
+        self.lin3 = torch.nn.Linear(width[1], datasetroot.num_classes)
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
-        for layer in self.layers[:-1]:
-            pseudo = torch.rand((2,6), dtype=torch.float) 
-            x=layer(x, edge_index,pseudo=pseudo)
-            x =x*torch.sigmoid(x)
-        x = F.log_softmax(self.layers[-1](x,edge_index),dim=1)
-        return x
-        """ # two-dimensional edge attributes
+        pseudo = torch.rand(edge_index.size(), dtype=torch.float)  # two-dimensional edge attributes
         x = F.relu(self.conv1(x, edge_index,pseudo=pseudo))
         x = F.relu(self.conv2(x, edge_index,pseudo=pseudo))
         x = global_mean_pool(x, data.batch)
         x = x*F.sigmoid(self.lin1(x))
         x = x*F.sigmoid(self.lin2(x))
         
-        return F.log_softmax(self.lin3(x), dim=1)"""
+        return F.log_softmax(self.lin3(x), dim=1)
     
-
     
     
 class topk_pool_Net(torch.nn.Module):
@@ -307,7 +272,7 @@ def test(testloader,net,criterion):
     return test_loss
 
 
-def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,MonteSize,savepath):
+def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,MonteSize,width,savepath):
     Batch_size=int(params[0]) 
     for Monte_iter in range(MonteSize):
         # Data
@@ -330,7 +295,6 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,MonteSize,sav
                     if start_epoch>=num_pre_epochs-1:
                         continue
                 else:
-                    width=ContractionLayerCoefficients(datasetroot.num_features,*params[1:3])
                     net =ChooseModel(modelName,datasetroot,width)
         
         elif dataset=='ENZYMES' or dataset=='MUTAG':
@@ -379,9 +343,10 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,MonteSize,sav
             net = net.to(device)
                 #cudnn.benchmark = True
             criterion = nn.CrossEntropyLoss()
-            optimizer =optim.Adam(net.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
-
-            logging('Batch size: {}, Number of layers:{} ConCoeff: {}, LR:{}, MonteSize:{}'.format(params[0], params[1],params[2],params[3],Monte_iter))
+            #optimizer =optim.Adam(net.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
+            optimizer = optim.SGD(net.parameters(), lr=params[3], momentum=0.9, weight_decay=5e-4)
+            
+            logging('Batch size: {}, Number of layers:{} ConCoeff: {}, lr:{},MonteSize:{}'.format(params[0], params[1],params[2],params[3],Monte_iter))
             for epoch in range(num_pre_epochs):
                 PreTrainLoss=train(trainloader,net,optimizer,criterion)
                 print('\nEpoch: {},  Average pre-tain loss: {:.4f} \n'.format(epoch,PreTrainLoss[0]))
@@ -390,9 +355,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,MonteSize,sav
 
         #NewNetworksize=width
         if dataset=='Cora' or dataset =='Citeseer' or dataset =='Pubmed':
-           # OptimizedNet=GCN(datasetroot,NewNetworksize[0:-1]) 
-        
-           OptimizedNet=ChooseModel(modelName,datasetroot,NewNetworksize[0:-1])
+            OptimizedNet=ChooseModel(modelName,datasetroot,NewNetworksize[0:-1])
 
 
             
@@ -407,9 +370,9 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,MonteSize,sav
         OptimizedNet = OptimizedNet.to(device)
         cudnn.benchmark = True
         criterionNew = nn.CrossEntropyLoss()
-        optimizerNew = optim.SGD(OptimizedNet.parameters(), lr=params[3], momentum=0.9, weight_decay=5e-4)
-        #optimizerNew = optim.Adam(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
-    
+        optimizerNew =optim.Adam(net.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
+
+            
         for epoch in range(start_epoch,num_epochs):
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
             print('\n Epoch: {}, Average tain loss: {:.4f} \n'.format(epoch,TrainLoss[0]))
@@ -438,7 +401,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,MonteSize,sav
           
      
         FileName="{}-{}-param_{}_{}_{}_{}-monte_{}".format(dataset,modelName,params[0],params[1],params[2],params[3],Monte_iter)
-        np.save("{}/{}Convergence/TrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
+        np.save("{}/{}Convergence/TrainConvergence{}".format(savepath,dataset,FileName),TrainConvergence)
         #np.save(savepath+'TestConvergence-'+FileName,TestConvergence)
         #torch.cuda.empty_cache()
         print_nvidia_useage()
@@ -483,9 +446,10 @@ if __name__=="__main__":
     resume=args.resume
     return_output=args.return_output
     save_recurrence_plots=args.save_recurrence_plots
+    width=ContractionLayerCoefficients(args.ConCoeff,args.NumLayers)
     #params=[args.BatchSize,args.NumLayers,args.args.ConCoeff,args.CutoffCoeff]
     params=[args.BatchSize,args.NumLayers,args.ConCoeff,args.lr]
     
-    TrainingNet(args.dataset,args.modelName,params,args.num_pre_epochs,args.num_epochs,args.MonteSize,args.savepath)
+    TrainingNet(args.dataset,args.modelName,params,args.num_pre_epochs,args.num_epochs,args.MonteSize,width,args.savepath)
 
     

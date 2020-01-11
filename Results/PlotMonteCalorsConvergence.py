@@ -6,7 +6,7 @@ import matplotlib.style as style
 style.available
 sns.set_context('paper')
 sns.set()
-def PlotMonteCalorsTimesConvergenceNpy(dataset,file_constraited,coefficientsFirst,coefficientsSecond,save_png_name,start_plot,epochs,*args):
+def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coefficientsFirst,coefficientsSecond,save_png_name,start_plot,epochs,*args):
     Legend=args
     x=np.linspace(start_plot,start_plot+epochs-1,num=epochs).tolist()
     if len(coefficientsFirst)>1:
@@ -15,7 +15,7 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,file_constraited,coefficientsFirs
         plt.style.use('seaborn-darkgrid')  
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
-            for file in glob.glob("{}-{}*{}_{}*.npy".format(file_constraited,dataset,coefficientsFirst[i],coefficientsSecond[0])):
+            for file in glob.glob("{}*{}*{}*{}*{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[i],coefficientsSecond[0])):
                 print(file)
                 TrainConvergence=np.load(file).tolist()
                 if max(TrainConvergence)>5:
@@ -38,12 +38,12 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,file_constraited,coefficientsFirs
             
     elif len(coefficientsSecond)>1:
         coefficients=coefficientsSecond
-        parts=round(len(coefficients)/2)+1
+        parts=round(len(coefficients)/2)
         plt.style.use('seaborn-darkgrid')  
 
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
-            for file in glob.glob("{}-{}*{}_{}*.npy".format(file_constraited,dataset,coefficientsFirst[0],coefficientsSecond[i])):
+            for file in glob.glob("{}*{}*{}*{}*{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[i])):
                 print(file)
                 TrainConvergence=np.load(file).tolist()
                 if max(TrainConvergence)>20:

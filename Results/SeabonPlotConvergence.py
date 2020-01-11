@@ -4,6 +4,7 @@ import os,glob
 import seaborn as sns
 import pandas as pd
 
+
 def PlotMonteCalorsTimesConvergenceNpySeaborn(dataset,file_constraited,coefficientsFirst,coefficientsSecond,save_png_name,start_plot,epochs,*args):
     Legend=args
     #plt.figure(figsize = (16,9)) # figure size with ratio 16:9
@@ -58,9 +59,9 @@ def PlotMonteCalorsTimesConvergenceNpySeaborn(dataset,file_constraited,coefficie
                     TrainConvergenceAll.append(TrainConvergence)
             print("coefficient of {} num is: {}".format(coefficients[i],len(TrainConvergenceAll)))            
             df = pd.DataFrame(TrainConvergenceAll,index=range(0,len(TrainConvergenceAll)))
-            ax = sns.tsplot(data=df.values) #, err_style="unit_traces")
-            mu = df.mean(axis=0)
-            standard_dev  = df.std(axis=0)
+            ax = sns.lineplot(x=x,data=df.values) #, err_style="unit_traces")
+            mu = df.mean(axis=1)
+            standard_dev  = df.std(axis=1)
             #ax.errorbar(x, mu, yerr=standard_dev, fmt='-o') #fmt=None to plot bars only
             
             if i<parts:
