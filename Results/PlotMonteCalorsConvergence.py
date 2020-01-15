@@ -15,7 +15,7 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
         plt.style.use('seaborn-darkgrid')  
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
-            for file in glob.glob("{}*{}*{}*{}*{}*{}{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[i],coefficientsSecond[0],coefficientsThree[0],coefficientsThree[0])):
+            for file in glob.glob("{}*{}*{}*{}*{}*{}*{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[i],coefficientsSecond[0],coefficientsThree[0],coefficientsFour[0])):
                 print(file)
                 TrainConvergence=np.load(file).tolist()
                 if max(TrainConvergence)>5:
@@ -43,7 +43,7 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
 
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
-            for file in glob.glob("{}*{}*{}*{}*{}*{}*{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[i],coefficientsThree[0],coefficientsThree[0])):
+            for file in glob.glob("{}*{}*{}*{}*{}*{}*{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[i],coefficientsThree[0],coefficientsFour[0])):
                 print(file)
                 TrainConvergence=np.load(file).tolist()
                 if max(TrainConvergence)>20:
@@ -70,7 +70,7 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
 
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
-            for file in glob.glob("{}*{}*{}*{}*{}*{}*{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[0],coefficientsThree[i],coefficientsfour[0])):
+            for file in glob.glob("{}*{}*{}*{}*{}*{}*{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[0],coefficientsThree[i],coefficientsFour[0])):
                 print(file)
                 TrainConvergence=np.load(file).tolist()
                 if max(TrainConvergence)>20:
@@ -116,7 +116,7 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
                 plt.plot(x,mu[start_plot:start_plot+epochs],'--', lw=1.5)
             
             plt.fill_between(x, (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],alpha=0.5)   
- 
+
         
     else:
         raise Exception ("Wrong input, please check")
@@ -127,6 +127,5 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
     plt.ylabel('Loss')
     plt.legend(tuple(Legend))
     plt.savefig(save_png_name,dpi=600)
-    plt.close()
 
 #def PlotMonteCalorsTimesConvergencePth(coefficients,file_path,parts,save_png_name,start_plot):

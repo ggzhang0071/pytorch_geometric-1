@@ -119,8 +119,8 @@ def save_recurrencePlots(net,save_recurrencePlots_file):
 
 class GCN(torch.nn.Module):
     def __init__(self,datasetroot,width):
-        self.NumLayers=len(width)
         super(GCN,self).__init__()
+        self.NumLayers=len(width)
         self.layers = nn.ModuleList()
         self.layers.append(GCNConv(datasetroot.num_features, width[0], cached=True))
         for i in range(self.NumLayers-1):
@@ -143,34 +143,39 @@ class GCN(torch.nn.Module):
 class AGNNNet(torch.nn.Module):
     def __init__(self,datasetroot,width):
         super(AGNNNet, self).__init__()
-        self.lin1 = torch.nn.Linear(datasetroot.num_features, 16)
+        self.NumLayers=len(width)
+        self.lin1 = torch.nn.Linear(datasetroot.num_features, width[0])
+        for i in range(self.NumLayers-1):
+            self.layers.append(torch.nn.Linear(width[i],width[i+1]))   
+        self.layers.append(torch.nn.Linear(width[-1], datasetroot.num_classes))
         self.prop1 = AGNNConv(requires_grad=False)
         self.prop2 = AGNNConv(requires_grad=True)
-        self.lin2 = torch.nn.Linear(16, datasetroot.num_classes)
+        self.layers = nn.ModuleList()
 
+  
     def forward(self,data):
         x,edge_index=data.x,data.edge_index
-        x = F.dropout(data.x, training=self.training)
-        x = F.relu(self.lin1(x))
+        x = F.dropout(x, training=self.training)
+        x=self.lin1(x)
         x = self.prop1(x, edge_index)
         x = self.prop2(x, edge_index)
-        x = F.dropout(x, training=self.training)
-        x = self.lin2(x)
+        for layer in self.layers[:-1]:
+            x=layer(x)
+            x =x*torch.sigmoid(x)
+            x = F.dropout(x, training=self.training)
         return F.log_softmax(x, dim=1)    
-    
+
 class ChebConvNet(torch.nn.Module):
     def __init__(self,datasetroot,width):
         self.NumLayers=len(width)
         super(ChebConvNet,self).__init__()
         self.layers = nn.ModuleList()
-        self.layers.append(ChebConv(datasetroot.num_features,width[0],K=2))
-
+        self.layers.append(ChebConv(datasetroot.num_features,width[0],K=1))
         for i in range(self.NumLayers-1):
-            layer=ChebConv(width[i],width[i+1],K=2)
+            layer=ChebConv(width[i],width[i+1],K=1)
             nn.init.xavier_uniform_(layer.weight)
             self.layers.append(layer)
-
-        self.layers.append(ChebConv(width[-1], datasetroot.num_classes,K=2))
+        self.layers.append(ChebConv(width[-1], datasetroot.num_classes,K=1))
 
     def forward(self,data):
         x, edge_index = data.x, data.edge_index
@@ -196,23 +201,10 @@ class SplineNet(torch.nn.Module):
         x = self.conv2(x, edge_index, 2)
         return F.log_softmax(x, dim=1)
     
-def ModelAndSave(dataset,modelName,train_dataset,params): 
-    model_to_save='./checkpoint/{}-{}-param_{}_{}_{}_{}-ckpt.pth'.format(dataset,modelName,params[0],params[1],params[2],params[3])
-    if resume==True and os.path.exists(model_to_save):
-        [net,NewNetworksize,TrainConvergence,TestConvergence,start_epoch]=ResumeModel(model_to_save)
-        if start_epoch>=num_epochs-1:
-            pass
-
-    else:
-        width=ContractionLayerCoefficients(train_dataset.num_features,*params[1:3])
-        net =ChooseModel(modelName,train_dataset,width)
-    return net, model_to_save
-
-    
 class topk_pool_Net(torch.nn.Module):
     def __init__(self,datasetroot, width):
-        self.NumLayers=len(width)
         super(topk_pool_Net, self).__init__()
+        self.NumLayers=len(width)
         self.conv1 = GraphConv(datasetroot.num_features, 128)
         self.pool1 = TopKPooling(128, ratio=0.8)
         self.conv2 = GraphConv(128, 128)
@@ -246,6 +238,20 @@ class topk_pool_Net(torch.nn.Module):
             x = F.dropout(x, p=0.5, training=self.training)
         x = F.log_softmax(self.layers[-1](x),dim=1)
         return x
+    
+def ModelAndSave(dataset,modelName,train_dataset,params): 
+    model_to_save='./checkpoint/{}-{}-param_{}_{}_{}_{}-ckpt.pth'.format(dataset,modelName,params[0],params[1],params[2],params[3])
+    if resume==True and os.path.exists(model_to_save):
+        [net,NewNetworksize,TrainConvergence,TestConvergence,start_epoch]=ResumeModel(model_to_save)
+        if start_epoch>=num_epochs-1:
+            pass
+
+    else:
+        width=ContractionLayerCoefficients(train_dataset.num_features,*params[1:3])
+        net =ChooseModel(modelName,train_dataset,width)
+    return net, model_to_save
+
+
 
     
 # Training
@@ -303,13 +309,13 @@ def test(testloader,net,criterion):
 
 def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,optimizerName,MonteSize,savepath):
     Batch_size=int(params[0]) 
-    NewNetworkSize=[]
     for Monte_iter in range(MonteSize):
         # Data
         best_loss = float('inf')  # best test loss
         start_epoch = 0  # start from epoch 0 or last checkpoint epoch         
         TrainConvergence=[]
         TestConvergence=[]
+        NewNetworkSizeAdjust=[]
 
         # model 
         root='/git/data/GraphData/'+dataset
@@ -320,8 +326,6 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,optimizerName
             testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
             [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params)
 
-
-        
         elif dataset=='ENZYMES' or dataset=='MUTAG':
             datasetroot=TUDataset(root,name=dataset,use_node_attr=True)
             
@@ -332,7 +336,6 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,optimizerName
             testloader = DataListLoader(test_dataset, batch_size=100, shuffle=False)
             [net,model_to_save]=ModelAndSave(dataset,modelName,train_dataset,params)
 
-            
 
         elif dataset=='MNIST':
             datasetroot = MNISTSuperpixels(root=root, transform=T.Cartesian()).shuffle(True)
@@ -358,7 +361,8 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,optimizerName
 
         if dataset=='Cora' or dataset =='Citeseer' or dataset =='Pubmed': 
             OptimizedNet=ChooseModel(modelName,datasetroot,NewNetworksize[0:-1])
-            NewNetworkSize.append(NewNetworksize[0:-1])
+            NewNetworkSizeAdjust.append(datasetroot.num_features)
+            NewNetworkSizeAdjust.append(NewNetworksize[0:-1])
 
             
         elif dataset=='ENZYMES' or dataset=='MUTAG':
@@ -391,7 +395,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,optimizerName
                                 'TrainConvergence': TrainConvergence,
                                 'TestConvergence': TestConvergence,
                                 'epoch': num_epochs,
-                                'NewNetworksize':NewNetworksize[0:-1],
+                                'NewNetworksize':NewNetworkSizeAdjust,
                        }
                 if not os.path.isdir('checkpoint'):
                     os.mkdir('checkpoint')
@@ -406,12 +410,12 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,optimizerName
           
         FileName="{}-{}-param_{}_{}_{}_{}-monte_{}".format(dataset,modelName,params[0],params[1],params[2],params[3],Monte_iter)
         np.save("{}/{}Convergence/TrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
-        np.save("{}/{}Convergence/NewNetworkSizeAdjust-{}".format(savepath,dataset,FileName),NewNetworksize[0:-1])
+        np.save("{}/{}Convergence/NewNetworkSizeAdjust-{}".format(savepath,dataset,FileName),NewNetworkSizeAdjust)
 
         
         #np.save(savepath+'TestConvergence-'+FileName,TestConvergence)
         #torch.cuda.empty_cache()
-    print('dataset:{} resized network size is {}, train error is:{}'.format(dataset,NewNetworksize[0:-1],TrainConvergence[-1]))
+    #print('dataset:{} resized network size is {}, train error is:{}'.format(dataset,NewNetworksize[0:-1],TrainConvergence[-1]))
     print_nvidia_useage()
 
 
