@@ -114,8 +114,7 @@ def save_recurrencePlots(net,save_recurrencePlots_file):
     else:
         pass 
 
-
-                      #net.apply(weight_reset)
+      #net.apply(weight_reset)
 
 class GCN(torch.nn.Module):
     def __init__(self,datasetroot,width):
@@ -127,17 +126,23 @@ class GCN(torch.nn.Module):
             layer=GCNConv(width[i],width[i+1], cached=True)
             nn.init.xavier_uniform_(layer.weight)
             self.layers.append(layer)
-
         self.layers.append(GCNConv(width[-1], datasetroot.num_classes, cached=True))
-
-
+        
     def forward(self,data):
         x, edge_index = data.x, data.edge_index
+        DiagElemnt=[]
         for layer in self.layers[:-1]:
+            if len(SVDOrNot)==2:
+                NumCutoff=SVDOrNot[0]
+                mark=SVDOrNot[1]
+                [U,D,V]=torch.svd(x)
+                DiagElemnt.append(D[0:NumCutoff].detach().tolist())
+                np.save('Results/DiagElement/{}-DiagElement'.format(mark),DiagElemnt)
             x=layer(x, edge_index)
             x =x*torch.sigmoid(x)
+            #DiagElemntTorch=torch.cat(DiagElemnt,dim=0)
         #x = F.dropout(x, training=self.training)
-        x = F.log_softmax(self.layers[-1](x,edge_index),dim=1)
+        x = F.log_softmax(self.layers[-1](x,edge_index),dim=0)
         return x
 
 class AGNNNet(torch.nn.Module):
@@ -152,7 +157,6 @@ class AGNNNet(torch.nn.Module):
         self.prop2 = AGNNConv(requires_grad=True)
         self.layers = nn.ModuleList()
 
-  
     def forward(self,data):
         x,edge_index=data.x,data.edge_index
         x = F.dropout(x, training=self.training)
@@ -177,9 +181,16 @@ class ChebConvNet(torch.nn.Module):
             self.layers.append(layer)
         self.layers.append(ChebConv(width[-1], datasetroot.num_classes,K=1))
 
-    def forward(self,data):
+    def forward(self,data,SVDOrNot):
         x, edge_index = data.x, data.edge_index
         for layer in self.layers[:-1]:
+            SVDOrNot=[5,"Pretrain"]
+            if len(SVDOrNot)==2:
+                NumCutoff=SVDOrNot[0]
+                mark=SVDOrNot[1]
+                [U,D,V]=torch.svd(x)
+                DiagElemnt.append(D[0:NumCutoff].detach().tolist())
+                np.save('Results/DiagElement/{}-DiagElement'.format(mark),DiagElemnt)
             x=layer(x,edge_index)
             x =x*torch.sigmoid(x)
         #x = F.dropout(x, training=self.training)
@@ -269,7 +280,6 @@ def RetainNetworkSize(net,ConCoeff):
             #print("Original size is {},After SVD is {}".format(Weight.shape[1],CutoffPoint))
     return NewNetworksize
 
-
 def train(trainloader,net,optimizer,criterion):
     net.train()
     train_loss = []
@@ -281,7 +291,6 @@ def train(trainloader,net,optimizer,criterion):
         loss.backward()
         train_loss.append(loss.item())
         optimizer.step()
-        #print('\nTrain set: Average tain loss: {:.4f} \n'.format(train_loss[-1]))
 
         """for layer_name, parameters in net.named_parameters():
              if "weight" in layer_name:
@@ -296,16 +305,15 @@ def test(testloader,net,criterion):
     test_loss = []
     with torch.no_grad():
         for data_list in testloader:
-            output = net(data_list)
+            output= net(data_list)
             y = torch.cat([data.y for data in data_list]).to(output.device)
             loss = criterion(output, y)
             test_loss.append(loss.item())
     #print('\n Test set: Average loss: {:.4f} \n'.format(test_loss[-1]))
-
     return test_loss
 
 
-def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,optimizerName,MonteSize,savepath):
+def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,optimizerName,MonteSize,savepath):
     Batch_size=int(params[0]) 
     for Monte_iter in range(MonteSize):
         # Data
@@ -350,10 +358,18 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,optimizerName
             criterion = nn.CrossEntropyLoss()
             optimizer =optim.Adam(net.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
 
-            logging('{}, Batch size: {}, Number of layers:{} ConCoeff: {}, LR:{}, MonteSize:{}'.format(dataset, params[0], params[1],params[2],params[3],Monte_iter))
+            logging('dataset:{}, Batch size: {}, Number of layers:{} ConCoeff: {}, LR:{}, MonteSize:{}'.format(dataset, params[0], params[1],params[2],params[3],Monte_iter))
             for epoch in range(num_pre_epochs):
-                PreTrainLoss=train(trainloader,net,optimizer,criterion)
-                #print('\nEpoch: {},  Average pre-tain loss: {:.4f} \n'.format(epoch,PreTrainLoss[0]))
+                global SVDOrNot
+                if epoch==num_pre_epochs-1:
+                    mark="{}-{}-Pretrain".format(dataset,modelName)
+                    SVDOrNot=[NumCutoff,mark]
+                    PreTrainLoss=train(trainloader,net,optimizer,criterion)
+                else:
+                    SVDOrNot=[]
+                    PreTrainLoss=train(trainloader,net,optimizer,criterion)
+
+                print('\nEpoch: {},  Average pre-tain loss: {:.4f} \n'.format(epoch,PreTrainLoss[0]))
         NewNetworksize=RetainNetworkSize(net,params[2])
             #del net
 
@@ -381,8 +397,15 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,optimizerName
             optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
     
         for epoch in range(start_epoch,num_epochs):
-            TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
-            #print('\n Epoch: {}, Average tain loss: {:.4f} \n'.format(epoch,TrainLoss[0]))
+            if epoch==num_epochs-1:
+                    mark="{}-{}-Train".format(dataset,modelName)
+                    SVDOrNot=[NumCutoff,mark]
+                    PreTrainLoss=train(trainloader,net,optimizer,criterion)
+            else:
+                    SVDOrNot=[]
+                    TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
+                    
+            print('\n Epoch: {}, Average tain loss: {:.4f} \n'.format(epoch,TrainLoss[0]))
             TrainConvergence.append(statistics.mean(TrainLoss))
             TestConvergence.append(statistics.mean(test(testloader,OptimizedNet,criterion)))
 
@@ -427,8 +450,9 @@ if __name__=="__main__":
     parser.add_argument('--dataset',default='Cora',type=str, help='dataset to train')
     parser.add_argument('--modelName',default='GCN',type=str, help='model to use')
     parser.add_argument('--LR', default=0.1, type=float, help='learning rate') 
-    parser.add_argument('--ConCoeff', default=0.95, type=float, help='contraction coefficients')
+    parser.add_argument('--ConCoeff', default=0.99, type=float, help='contraction coefficients')
     parser.add_argument('--CutoffCoeff', default=0.1, type=float, help='contraction coefficients')
+    parser.add_argument('--NumCutoff', default=5, type=float, help='contraction coefficients')
     parser.add_argument('--rho', type=float, default=1e-2, metavar='R',
                         help='cardinality weight (default: 1e-2)')
     parser.add_argument('--optimizer',default='SGD',type=str, help='optimizer to train')
@@ -461,6 +485,6 @@ if __name__=="__main__":
     #params=[args.BatchSize,args.NumLayers,args.args.ConCoeff,args.CutoffCoeff]
     params=[args.BatchSize,args.NumLayers,args.ConCoeff,args.LR]
     
-    TrainingNet(args.dataset,args.modelName,params,args.num_pre_epochs,args.num_epochs,args.optimizer,args.MonteSize,args.savepath)
+    TrainingNet(args.dataset,args.modelName,params,args.num_pre_epochs,args.num_epochs,args.NumCutoff,args.optimizer,args.MonteSize,args.savepath)
 
     
