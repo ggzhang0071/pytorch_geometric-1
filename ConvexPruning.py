@@ -149,7 +149,8 @@ class AGNNNet(torch.nn.Module):
     def __init__(self,datasetroot,width):
         super(AGNNNet, self).__init__()
         self.NumLayers=len(width)
-        self.lin1 = torch.nn.Linear(datasetroot.num_features, width[0])
+        self.layers = nn.ModuleList()
+        self.lin1=torch.nn.Linear(datasetroot.num_features, width[0])
         for i in range(self.NumLayers-1):
             self.layers.append(torch.nn.Linear(width[i],width[i+1]))   
         self.layers.append(torch.nn.Linear(width[-1], datasetroot.num_classes))
@@ -163,7 +164,14 @@ class AGNNNet(torch.nn.Module):
         x=self.lin1(x)
         x = self.prop1(x, edge_index)
         x = self.prop2(x, edge_index)
+        DiagElemnt=[]
         for layer in self.layers[:-1]:
+            if len(SVDOrNot)==2:
+                NumCutoff=SVDOrNot[0]
+                mark=SVDOrNot[1]
+                [U,D,V]=torch.svd(x)
+                DiagElemnt.append(D[0:NumCutoff].detach().tolist())
+                np.save('Results/DiagElement/{}-DiagElement'.format(mark),DiagElemnt)
             x=layer(x)
             x =x*torch.sigmoid(x)
             x = F.dropout(x, training=self.training)
@@ -181,10 +189,10 @@ class ChebConvNet(torch.nn.Module):
             self.layers.append(layer)
         self.layers.append(ChebConv(width[-1], datasetroot.num_classes,K=1))
 
-    def forward(self,data,SVDOrNot):
+    def forward(self,data):
         x, edge_index = data.x, data.edge_index
+        DiagElemnt=[]
         for layer in self.layers[:-1]:
-            SVDOrNot=[5,"Pretrain"]
             if len(SVDOrNot)==2:
                 NumCutoff=SVDOrNot[0]
                 mark=SVDOrNot[1]
