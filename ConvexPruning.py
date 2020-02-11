@@ -15,7 +15,7 @@ import torchvision
 import torchvision.transforms as transforms
 from torch_geometric.nn import GCNConv, ChebConv,global_mean_pool,SplineConv,GraphConv, AGNNConv,TopKPooling,DataParallel
 from pyts.image import RecurrencePlot
-from torch_geometric.datasets import MNISTSuperpixels,Planetoid,TUDataset,PPI,Amazon,Reddit
+from torch_geometric.datasets import MNISTSuperpixels,Planetoid,TUDataset,PPI,Amazon,Reddit,CoraFull
 import torch_geometric.transforms as T
 from torch_geometric.nn import global_mean_pool as gap, global_max_pool as gmp
 import numpy as np
@@ -41,16 +41,17 @@ def TrainPart(start_epoch,num_epochs,SVDOrNot,trainloader,testloader,OptimizedNe
     best_loss = float('inf')  # best test loss
     TrainConvergence=[]
     TestConvergence=[]
+    
     for epoch in range(start_epoch,num_epochs):
         if epoch==num_epochs-1:
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
         else:
             SVDOrNot=[]
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
-                    
-        print('\n Epoch: {}, Average tain loss: {:.4f} \n'.format(epoch,TrainLoss[0]))
+        TestLoss,TestAcc=test(testloader,OptimizedNet,criterionNew)          
+        print('\n Epoch: {},  tain loss: {:.4f}, test loss: {:.4f},test acc: {:.4f} \n'.format(epoch,TrainLoss[0],TestLoss[0],TestAcc[0]))
         TrainConvergence.append(statistics.mean(TrainLoss))
-        TestConvergence.append(statistics.mean(test(testloader,OptimizedNet,criterionNew)))
+        TestConvergence.append(statistics.mean(TestLoss))
                # save model
         if SaveModule and TestConvergence[epoch] < best_loss:
                 state = {
@@ -70,7 +71,7 @@ def TrainPart(start_epoch,num_epochs,SVDOrNot,trainloader,testloader,OptimizedNe
 
             save_recurrencePlots(net,save_recurrencePlots_file)"""
     del OptimizedNet 
-    return TrainConvergence
+    return TrainConvergence, TestAcc
 
 def SaveDynamicsEvolution(x,SVDOrNot):
     if len(SVDOrNot)==3:
@@ -324,6 +325,7 @@ def train(trainloader,net,optimizer,criterion):
         optimizer.zero_grad()
         output=net(data_list)
         target= torch.cat([data.y for data in data_list]).to(output.device)
+        
         loss = criterion(output, target)
         loss.backward()
         train_loss.append(loss.item())
@@ -339,15 +341,23 @@ def train(trainloader,net,optimizer,criterion):
        
 def test(testloader,net,criterion):
     net.eval()
-    test_loss = []
+    test_loss, accs= [],[]
     with torch.no_grad():
         for data_list in testloader:
             output= net(data_list)
             y = torch.cat([data.y for data in data_list]).to(output.device)
+            pred= output.max(1)[1]
+            for data in data_list:
+                acc=pred.eq(data.y.to(pred.device)).sum().item()/len(data.y)
+                
+            #acc = torch.cat(pred.eq(data.y.to(pred.device)).sum().item()/len(data.y) for data in data_list])
             loss = criterion(output, y)
             test_loss.append(loss.item())
+            accs.append(acc)
+
     #print('\n Test set: Average loss: {:.4f} \n'.format(test_loss[-1]))
-    return test_loss
+    return test_loss,accs
+
 
 
 def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,optimizerName,MonteSize,savepath):
@@ -366,42 +376,49 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
             [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,SVDOrNot)
-
+            
+        elif dataset =="CoraFull":
+            datasetroot = CoraFull(root=root).shuffle()
+            trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
+            testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
+            [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,SVDOrNot)
+            
         elif dataset=='ENZYMES' or dataset=='MUTAG':
             datasetroot=TUDataset(root,name=dataset,use_node_attr=True)
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
-            #modelName="topk_pool_Net"
             [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,SVDOrNot)
-            
+                  
         elif dataset =="PPI":
             train_dataset = PPI(root, split='train')
             test_dataset = PPI(root, split='test')
-            trainloader = DataLoader(train_dataset, batch_size=Batch_size, shuffle=True)
-            testloader = DataLoader(test_dataset, batch_size=100, shuffle=False)
+            trainloader = DataListLoader(train_dataset, batch_size=Batch_size, shuffle=True)
+            testloader = DataListLoader(test_dataset, batch_size=100, shuffle=False)
             [net,model_to_save]=ModelAndSave(dataset,modelName,train_dataset,params,SVDOrNot)
             
         elif dataset =="Reddit":
             datasetroot=Reddit(root)   
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
-            testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
+            testloader = DataListLoader(datasetroot, batch_size=2, shuffle=False)
             [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,SVDOrNot)
 
         elif dataset=="Amazon":
             datasetroot=Amazon(root, "Photo", transform=None, pre_transform=None)
-            trainloader = DataListLoader(datasetroot, batch_size=Batch_size*2, shuffle=True)
+            trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
             [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,SVDOrNot)
 
         elif dataset=='MNIST':
-            datasetroot = MNISTSuperpixels(root=root, transform=T.Cartesian()).shuffle(True)
-            trainloader = DataListLoader(datasetroot, batch_size=Batch_size/2, shuffle=True)
+            datasetroot = MNISTSuperpixels(root=root, transform=T.Cartesian())
+            trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
             [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,SVDOrNot)
 
 
         elif dataset=='CIFAR10':
             pass
+        
+        
         FileName="{}-{}-param_{}_{}_{}_{}-monte_{}".format(dataset,modelName,params[0],params[1],params[2],params[3],Monte_iter)
         if Monte_iter==0:
             print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
@@ -436,7 +453,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
 
      
-        TrainConvergence=TrainPart(start_epoch,num_epochs,SVDOrNot,trainloader,testloader,
+        TrainConvergence,TestAcc=TrainPart(start_epoch,num_epochs,SVDOrNot,trainloader,testloader,
                                                 OptimizedNet,optimizerNew,criterionNew,True,model_to_save)
         np.save("{}/{}Convergence/TrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
         np.save("{}/{}Convergence/NewNetworkSizeAdjust-{}".format(savepath,dataset,FileName),NewNetworkSizeAdjust)
@@ -444,7 +461,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         
         #np.save(savepath+'TestConvergence-'+FileName,TestConvergence)
         #torch.cuda.empty_cache()
-    #print('dataset:{} resized network size is {}, train error is:{}'.format(dataset,NewNetworksize[0:-1],TrainConvergence[-1]))
+    print('dataset:{}, model name;{}, resized network size is {}, train error is:{}, test acc is {}'.format(dataset,modelName,NewNetworksize[0:-1],TrainConvergence[-1],TestAcc[-1]))
     print_nvidia_useage()
 
 
