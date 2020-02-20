@@ -2,83 +2,34 @@ timestamp=`date +%Y%m%d%H%M%S`
 
 rm Logs/*.log
 
-modelName='ChebConvNet'
-#'Citeseer' 'Pubmed' 'Cora' 'Reddit'  'Amazon'
-for dataset in  'Reddit' 'Amazon'
+
+for  modelName in  'ChebConvNet'
 do
-for BatchSize in 32 64 128 256 512 1024
+for dataset in  'CoraFull' 
 do
-    python3  ConvexPruning.py --dataset $dataset --BatchSize $BatchSize --NumLayers 2  --ConCoeff 0.95 --CutoffCoeff 2 --num_pre_epochs 60 --num_epochs 200 --MonteSize 10 --LR 0.2 --modelName $modelName --PruningTimes 1 --resume True 2>&1 |tee Logs/${modelName}_${dataset}_$timestamp.log
+for lr in 0.3 0.4
+do
+    python3  ConvexPruning.py --dataset $dataset --BatchSize 128 --NumLayers 2  --ConCoeff 0.99 --CutoffCoeff 2 --num_pre_epochs 60 --num_epochs 200 --MonteSize 10 --LR $lr --modelName $modelName --PruningTimes 1 --resume True 2>&1 |tee Logs/${modelName}_${dataset}_$timestamp.log
     
 done
 done
-
-modelName='GCN'
-#'Citeseer' 'Pubmed' 'Cora' 'Reddit'  'Amazon'
-for dataset in  'Reddit' 'Amazon'
-do
-for BatchSize in 32 64 128 256 512 1024
-do
-    python3  ConvexPruning.py --dataset $dataset --BatchSize $BatchSize --NumLayers 2  --ConCoeff 0.95 --CutoffCoeff 2 --num_pre_epochs 60 --num_epochs 200 --MonteSize 10 --LR 0.2 --modelName $modelName --PruningTimes 1 --resume True 2>&1 |tee Logs/${modelName}_${dataset}_$timestamp.log
-    
 done
-done
-
-
-modelName='ChebConvNet'
-#'Citeseer' 'Pubmed' 'Cora' 'Reddit'  'Amazon'
-for dataset in  'Reddit' 'Amazon'
-do
-for NumLayers in 1 2 3 4 6 8
-do
-    python3  ConvexPruning.py --dataset $dataset --BatchSize 128 --NumLayers $NumLayers  --ConCoeff 0.95 --CutoffCoeff 2 --num_pre_epochs 60 --num_epochs 200 --MonteSize 10 --LR 0.2  --modelName $modelName --PruningTimes 1 --resume True 2>&1 |tee Logs/${modelName}_${dataset}_$timestamp.log
-    
-done
-done
-
-modelName='GCN'
-#'Citeseer' 'Pubmed' 'Cora' 'Reddit'  'Amazon'
-for dataset in  'Reddit' 'Amazon'
-do
-for NumLayers in 1 2 3 4 6 8
-do
-    python3  ConvexPruning.py --dataset $dataset --BatchSize 128 --NumLayers $NumLayers  --ConCoeff 0.95 --CutoffCoeff 2 --num_pre_epochs 60 --num_epochs 200 --MonteSize 10 --LR 0.2  --modelName $modelName --PruningTimes 1 --resume True 2>&1 |tee Logs/${modelName}_${dataset}_$timestamp.log
-    
-done
-done
-
-
-modelName='ChebConvNet'
-#'Citeseer' 'Pubmed' 'Cora' 'Reddit'  'Amazon'
-for dataset in  'Reddit' 'Amazon'
-do
-for lr in 0.001 0.01 0.1 0.5
-do
-    python3  ConvexPruning.py --dataset $dataset --BatchSize 128 --NumLayers 2  --ConCoeff 0.95 --CutoffCoeff 2 --num_pre_epochs 60 --num_epochs 200 --MonteSize 10 --LR $lr --modelName $modelName --PruningTimes 1 --resume True 2>&1 |tee Logs/${modelName}_${dataset}_$timestamp.log
-    
-done
-done
-
-modelName='GCN'
-#'Citeseer' 'Pubmed' 'Cora' 'Reddit'  'Amazon'
-for dataset in  'Reddit' 'Amazon'
-do
-for lr in 0.001 0.01 0.1 0.5
-do
-    python3  ConvexPruning.py --dataset $dataset --BatchSize 128 --NumLayers 2  --ConCoeff 0.95 --CutoffCoeff 2 --num_pre_epochs 60 --num_epochs 200 --MonteSize 10 --LR $lr --modelName $modelName --PruningTimes 1 --resume True 2>&1 |tee Logs/${modelName}_${dataset}_$timestamp.log
-    
-done
-done
-
-
 
 
 <<"COMMENT"
+#'Citeseer' 'Pubmed' 'Cora' 'Reddit'  'Amazon'
+for dataset in  'CoraFull' 
+do
+for NumLayers in 1 2 3 4 6
+do
+    python3 ConvexPruning.py --dataset $dataset --BatchSize 128 --NumLayers $NumLayers  --ConCoeff 0.99 --CutoffCoeff 2 --num_pre_epochs 60 --num_epochs 200 --MonteSize 10 --LR 0.2  --modelName $modelName --PruningTimes 1 --resume True 2>&1 |tee Logs/${modelName}_${dataset}_$timestamp.log
+    
+done
 modelName='ChebConvNet'
 
 for dataset in  'Cora' 'Citeseer' 'Pubmed'
 do
-for NumLayers in 1 2 3 4 6 8
+for NumLayers in 1 2 3 4 
 do
     python3  ConvexPruning.py --dataset $dataset --BatchSize 128 --NumLayers $NumLayers  --ConCoeff 0.8 --CutoffCoeff 2 --num_pre_epochs 120 --num_epochs 200 --MonteSize 10 --LR 0.1  --modelName $modelName --PruningTimes 2 --resume True 2>&1 |tee Logs/${modelName}_${dataset}_$timestamp.log
     
