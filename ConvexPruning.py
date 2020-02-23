@@ -18,6 +18,7 @@ from pyts.image import RecurrencePlot
 from torch_geometric.datasets import MNISTSuperpixels,Planetoid,TUDataset,PPI,Amazon,Reddit,CoraFull
 import torch_geometric.transforms as T
 from torch_geometric.nn import global_mean_pool as gap, global_max_pool as gmp
+from sklearn.decomposition import NMF
 import numpy as np
 import argparse
 import os,sys
@@ -68,7 +69,7 @@ def ChooseModel(model_name,datasetroot,NetInfo):
     return net
 
 def TrainPart(start_epoch,num_epochs,trainloader,testloader,OptimizedNet,optimizerNew,criterionNew,mark,markWeight,NumCutoff,SaveModule,model_to_save):
-    best_loss = float('inf')  # best test loss
+    best_acc =1  # best test loss
     TrainConvergence=[]
     TestConvergence=[]
     for epoch in range(start_epoch,num_epochs):
@@ -82,28 +83,27 @@ def TrainPart(start_epoch,num_epochs,trainloader,testloader,OptimizedNet,optimiz
         else:
             SVDOrNot=[]
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
-        TestLoss,TestAcc=test(testloader,OptimizedNet,criterionNew)          
-        print('\n Epoch: {},  tain loss: {:.4f}, test loss: {:.4f},test acc: {:.4f} \n'.format(epoch,TrainLoss[0],TestLoss[0],TestAcc[0]))
+        Acc=test(testloader,OptimizedNet,criterionNew)          
+        print('\n Epoch: {},  tain loss: {:.4f}, train acc: {:.4f},test acc: {:.4f} \n'.format(epoch,TrainLoss[0],Acc[0],Acc[1]))
         TrainConvergence.append(statistics.mean(TrainLoss))
-        TestConvergence.append(statistics.mean(TestLoss))
                # save model
-        if SaveModule and TestConvergence[epoch] < best_loss:
+        if SaveModule and Acc[1] < best_acc:
                 state = {'net': OptimizedNet.module,
                                 'TrainConvergence': TrainConvergence,
-                                'TestConvergence': TestConvergence,
+                                'TestAcc': Acc[1],
                                 'epoch': num_epochs,
                        }
                 if not os.path.isdir('checkpoint'):
                     os.mkdir('checkpoint')
                 torch.save(state, model_to_save)
-                best_loss = TestConvergence[epoch]
+                best_acc = Acc[1]
           
                 ## save recurrence plots
         """if epoch%20==0:
                 save_recurrencePlots_file="../Results/RecurrencePlots/RecurrencePlots_{}_{}_BatchSize{}    \_ConCoeffi{}_epoch{}.png".format(dataset, model_name,params[0],params[1],epoch)
             save_recurrencePlots(net,save_recurrencePlots_file)"""
     del OptimizedNet 
-    return TrainConvergence, TestAcc
+    return TrainConvergence, Acc[1]
 
 
 def ContractionLayerCoefficients(num_features,*args):
@@ -344,7 +344,7 @@ def RetainNetworkSize(net,ConCoeff):
     for layer_name, Weight in net.named_parameters():
         if ("weight" in layer_name) and ("layers" in layer_name):
             #print(layer_name)
-            if Weight.dim()==3:
+            if Weight.dim()==3: 
                 Weight=Weight[0].view(Weight.size()[1],Weight.size()[2])
             [U,D,V]=torch.svd(Weight)
             NumCutoff=SVDOrNot[0]
@@ -365,11 +365,11 @@ def train(trainloader,net,optimizer,criterion):
     for data_list in trainloader:
         optimizer.zero_grad()
         output=net(data_list)
-        target= torch.cat([data.y for data in data_list]).to(output.device)
-        
-        loss = criterion(output, target)
+        for data in data_list:
+            target= torch.cat([data.y[data.train_mask]]).to(output.device)
+            loss = criterion(output[data.train_mask], target)
         loss.backward()
-        train_loss.append(loss.item())
+        train_loss.append(loss.item())  
         optimizer.step()
 
         """for layer_name, parameters in net.named_parameters():
@@ -382,22 +382,23 @@ def train(trainloader,net,optimizer,criterion):
        
 def test(testloader,net,criterion):
     net.eval()
-    test_loss, accs= [],[]
+    accs= []
     with torch.no_grad():
         for data_list in testloader:
             output= net(data_list)
-            y = torch.cat([data.y for data in data_list]).to(output.device)
-            pred= output.max(1)[1]
             for data in data_list:
-                acc=pred.eq(data.y.to(pred.device)).sum().item()/len(data.y)
-                
+                for _, mask in data('train_mask', 'test_mask'):
+                    y = torch.cat([data.y[mask] for data in data_list]).to(output.device)
+                    pred= output.max(1)[1][mask]
+                    acc=pred.eq(data.y[mask].to(pred.device)).sum().item()/len(data.y[mask])
+                    accs.append(acc)
+
+
             #acc = torch.cat(pred.eq(data.y.to(pred.device)).sum().item()/len(data.y) for data in data_list])
-            loss = criterion(output, y)
-            test_loss.append(loss.item())
-            accs.append(acc)
+ 
 
     #print('\n Test set: Average loss: {:.4f} \n'.format(test_loss[-1]))
-    return test_loss,accs
+    return accs
 
 
 
@@ -412,13 +413,20 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         WeightsDynamicsEvolution=[]
         # model 
         if dataset=='Cora' or dataset =='Citeseer' or dataset =='Pubmed':
-            datasetroot = Planetoid(root=root, name=dataset).shuffle()
+            datasetroot= Planetoid(root=root, name=dataset, transform =T.NormalizeFeatures()).shuffle()        
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
             [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params)
             
         elif dataset =="CoraFull":
-            datasetroot = CoraFull(root=root).shuffle()
+            datasetroot = CoraFull(root=root,transform =T.NormalizeFeatures()).shuffle()
+            data=datasetroot[0]
+            data.train_mask = torch.zeros(data.num_nodes, dtype=torch.uint8)
+            data.train_mask[:data.num_nodes - 1000] = 1
+            data.val_mask = None
+            data.test_mask = torch.zeros(data.num_nodes, dtype=torch.uint8)
+            data.test_mask[data.num_nodes - 500:] = 1
+            
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
             [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params)
@@ -523,10 +531,10 @@ if __name__=="__main__":
     parser.add_argument('--CutoffCoeff', default=0.1, type=float, help='contraction coefficients')
     parser.add_argument('--NumCutoff', default=5, type=float, help='contraction coefficients')
     parser.add_argument('--rho', type=float, default=1e-2, metavar='R',
-                        help='cardinality weight (default: 1e-2)')
+                        heixtelp='cardinality weight (default: 1e-2)')
     parser.add_argument('--optimizer',default='SGD',type=str, help='optimizer to train')
 
-    parser.add_argument('--num_pre_epochs', type=int, default=60, metavar='P',
+    parser.add_argument('--num_pre_epochs', type=int, default=30, metavar='P',
                         help='number of epochs to pretrain (default: 3)')
     parser.add_argument('--num_epochs', type=int, default=200, metavar='N',
                         help='number of epochs to train (default: 10)')
