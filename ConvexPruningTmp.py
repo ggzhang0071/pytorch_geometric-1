@@ -13,7 +13,7 @@ from torch_geometric.data import DataListLoader,DataLoader
 import statistics
 import torchvision
 import torchvision.transforms as transforms
-from torch_geometric.nn import GCNConv, ChebConv,global_mean_pool,SplineConv,GraphConv, AGNNConv,TopKPooling,DataParallel
+from torch_geometric.nn import GCNConv, ChebConv,global_mean_pool,SplineConv,GraphConv, AGNNConv,TopKPooling,DataParallel,GATConv
 from pyts.image import RecurrencePlot
 from torch_geometric.datasets import MNISTSuperpixels,Planetoid,TUDataset,PPI,Amazon,Reddit,CoraFull
 import torch_geometric.transforms as T
@@ -25,6 +25,8 @@ import os,sys
 def ChooseModel(model_name,datasetroot,width,SVDOrNot):
     if model_name=="GCN":  
         net=GCN(datasetroot,width,SVDOrNot) 
+    elif model_name=="GAT":     
+        net=GAT(datasetroot,width,SVDOrNot)
     elif model_name=="SplineNet":     
         net=SplineNet(datasetroot,width,SVDOrNot)
     elif model_name=="ChebConvNet":
@@ -157,10 +159,9 @@ def save_recurrencePlots(net,save_recurrencePlots_file):
       #net.apply(weight_reset)
 
 class GCN(torch.nn.Module):
-    def __init__(self,datasetroot,width,SVDOrNot):
+    def __init__(self,datasetroot,width):
         super(GCN,self).__init__()
         self.NumLayers=len(width)
-        self.SVDOrNot=SVDOrNot
         self.layers = nn.ModuleList()
         self.layers.append(GCNConv(datasetroot.num_features, width[0], cached=True))
         for i in range(self.NumLayers-1):
@@ -169,6 +170,31 @@ class GCN(torch.nn.Module):
             self.layers.append(layer)
         self.layers.append(GCNConv(width[-1], datasetroot.num_classes, cached=True))
         
+    def forward(self,data):
+        x, edge_index = data.x, data.edge_index
+        DiagElemnt=[]
+        for layer in self.layers[:-1]:
+            SaveDynamicsEvolution(x,self.SVDOrNot)
+            x=layer(x, edge_index)
+            x =x*torch.sigmoid(x)
+        #x = F.dropout(x, training=self.training)
+        x = F.log_softmax(self.layers[-1](x,edge_index),dim=1)
+        return x
+    
+    
+class GAT(torch.nn.Module):
+    def __init__(self,datasetroot,width,SVDOrNot):
+        super(GAT, self).__init__()
+        self.NumLayers=len(width)
+        self.SVDOrNot=SVDOrNot
+        self.layers = nn.ModuleList()
+        self.layers.append(GATConv(datasetroot.num_features, width[0]))
+        for i in range(self.NumLayers-1):
+            layer=GATConv(width[i],width[i+1])
+            nn.init.xavier_uniform_(layer.weight)
+            self.layers.append(layer)
+        self.layers.append(GATConv(width[-1], datasetroot.num_classes))
+
     def forward(self,data):
         x, edge_index = data.x, data.edge_index
         DiagElemnt=[]
@@ -201,7 +227,6 @@ class AGNNNet(torch.nn.Module):
         x = self.prop2(x, edge_index)
         DiagElemnt=[]
         for layer in self.layers[:-1]:
-           
             x=layer(x)
             x =x*torch.sigmoid(x)
             x = F.dropout(x, training=self.training)
@@ -232,19 +257,29 @@ class ChebConvNet(torch.nn.Module):
         return x
 
 
+
 class SplineNet(torch.nn.Module):
-    def __init__(self,datasetroot, width):
+    def __init__(self,datasetroot, width,SVDOrNot):
         super(SplineNet, self).__init__()
-        self.conv1 = SplineConv(datasetroot.num_features, 16, dim=1, kernel_size=2)
-        self.conv2 = SplineConv(16, datasetroot.num_classes, dim=1, kernel_size=2)
+        self.NumLayers=len(width)
+        self.layers = nn.ModuleList()
+        self.layers.append(SplineConv(datasetroot.num_features, width[0], dim=1, kernel_size=2))
+        for i in range(self.NumLayers-1):
+            layer=SplineConv(width[i],width[i+1], dim=1, kernel_size=2)
+            nn.init.xavier_uniform_(layer.weight)
+            self.layers.append(layer)
+        self.layers.append(SplineConv(width[-1], datasetroot.num_classes, dim=1, kernel_size=2))
 
     def forward(self,data):
-        x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
-        x = F.dropout(x, training=self.training)
-        x = F.elu(self.conv1(x, edge_index, torch.rand(edge_index.size()[0])))
-        x = F.dropout(x, training=self.training)
-        x = self.conv2(x, edge_index, 2)
-        return F.log_softmax(x, dim=1)
+        x, edge_index = data.x, data.edge_index
+        DiagElemnt=[]
+        for layer in self.layers[:-1]:
+            SaveDynamicsEvolution(x,self.SVDOrNot)
+            x=layer(x, edge_index)
+            x =x*torch.sigmoid(x)
+        #x = F.dropout(x, training=self.training)
+        x = F.log_softmax(self.layers[-1](x,edge_index),dim=1)
+        return x
     
 class topk_pool_Net(torch.nn.Module):
     def __init__(self,datasetroot, width):
@@ -474,7 +509,7 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser(description='PyTorch Training')
     parser.add_argument('--dataset',default='Cora',type=str, help='dataset to train')
     parser.add_argument('--modelName',default='GCN',type=str, help='model to use')
-    parser.add_argument('--LR', default=0.5, type=float, help='learning rate') 
+    parser.add_argument('--LR', default=0.1, type=float, help='learning rate') 
     parser.add_argument('--ConCoeff', default=0.99, type=float, help='contraction coefficients')
     parser.add_argument('--CutoffCoeff', default=0.1, type=float, help='contraction coefficients')
     parser.add_argument('--NumCutoff', default=5, type=float, help='contraction coefficients')
