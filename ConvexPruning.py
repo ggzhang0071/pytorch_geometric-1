@@ -115,7 +115,7 @@ def ContractionLayerCoefficients(num_features,*args):
         tmpOld=tmpNew
     return width
 
-def SaveDynamicsEvolution(x,SVDOrNot):
+def SaveDynamicsEvolution(x):
     if len(SVDOrNot)==3:
         NumCutoff=SVDOrNot[0]
         mark=SVDOrNot[1]
@@ -209,7 +209,7 @@ class GCN(torch.nn.Module):
         x, edge_index = data.x, data.edge_index
         DiagElemnt=[]
         for layer in self.layers[:-1]:
-            SaveDynamicsEvolution(x,SVDOrNot)
+            SaveDynamicsEvolution(x)
             x=layer(x, edge_index)
             x =x*torch.sigmoid(x)
         #x = F.dropout(x, training=self.training)
@@ -376,8 +376,6 @@ def ModelAndSave(dataset,modelName,train_dataset,params):
 
 def RetainNetworkSize(net,ConCoeff):
     NewNetworksize=[]
-    NewNetworkWeight=[]
-    WeightsDynamics=[]
     for layer_name, Weight in net.named_parameters():
         if ("weight" in layer_name) and ("layers" in layer_name):
             #print(layer_name)
@@ -394,7 +392,7 @@ def RetainNetworkSize(net,ConCoeff):
             """NewWeight= torch.mm(Weight,V[:,:CutoffPoint])
             net.conv2.weight = torch.nn.Parameter( NewWeight)"""
             #print("Original size is {},After SVD is {}".format(Weight.shape[1],CutoffPoint))
-    return NewNetworksize,WeightsDynamics
+    return NewNetworksize
 
 def train(trainloader,net,optimizer,criterion):
     net.train()
@@ -514,7 +512,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
 
         PreTrainConvergence=TrainPart(start_epoch,num_pre_epochs,trainloader,
                                                                 net,optimizer,criterion,mark,markWeight,NumCutoff,False,model_to_save)
-        NewNetworksize=RetainNetworkSize(net,params[2])[0]
+        NewNetworksize=RetainNetworkSize(net,params[2])
         NetInfo=[NewNetworksize[0:-1]]
         OptimizedNet=ChooseModel(modelName,datasetroot,NetInfo)
         NewNetworksize.insert(0,datasetroot.num_features)
@@ -541,7 +539,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         
         #np.save(savepath+'TestConvergence-'+FileName,TestConvergence)
         #torch.cuda.empty_cache()
-        print('dataset: {}, model name:{}, resized network size is {}, the  train error of {} epoches  is:{}, test acc is {}'.format(dataset,modelName,NewNetworksize[0:-1],num_epochs,TrainConvergence[-1],TestAcc))
+        print('dataset: {}, model name:{}, resized network size is {}, the train error of {} epoches  is:{}, test acc is {}'.format(dataset,modelName,NewNetworksize[0:-1],num_epochs,TrainConvergence[-1],TestAcc))
     print_nvidia_useage()
 
 
@@ -554,7 +552,7 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser(description='PyTorch Training')
     parser.add_argument('--dataset',default='Cora',type=str, help='dataset to train')
     parser.add_argument('--modelName',default='GCN',type=str, help='model to use')
-    parser.add_argument('--LR', default=0.1, type=float, help='learning rate') 
+    parser.add_argument('--LR', default=0.5, type=float, help='learning rate') 
     parser.add_argument('--ConCoeff', default=0.99, type=float, help='contraction coefficients')
     parser.add_argument('--CutoffCoeff', default=0.1, type=float, help='contraction coefficients')
     parser.add_argument('--NumCutoff', default=5, type=float, help='contraction coefficients')
