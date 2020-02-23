@@ -22,41 +22,15 @@ import numpy as np
 import argparse
 import os,sys
 
-def ChooseModel(model_name,datasetroot,NetInfo):
-    if len(NetInfo)==1:
-        width=NetInfo[0]
-    elif len(NetInfo)==2:
-        width=NetInfo[0]
-        weights=NetInfo[1]
-    else:
-        raise Exception("wrong weight info")
-        
+def ChooseModel(model_name,datasetroot,width):
     if model_name=="GCN":  
         net=GCN(datasetroot,width)
-        if len(NetInfo)==2:
-            state_dict = net.state_dict()
-            for i in range(len(weights)-1):
-                name='layers.{}.weight'.format(i)
-                if i==0:
-                    state_dict[name]=weights[i]
-                else:
-                    state_dict[name]=weights[i][:-1,:]
-            net.load_state_dict(state_dict)   
-
+    elif model_name=="GAT":     
+        net=GAT(datasetroot,width)    
     elif model_name=="SplineNet":     
         net=SplineNet(datasetroot,width) 
     elif model_name=="ChebConvNet":
         net=ChebConvNet(datasetroot,width)  
-        if len(NetInfo)==2:
-            state_dict = net.state_dict()
-            for i in range(len(weights)-1):
-                name='layers.{}.weight'.format(i)
-                if i==0:
-                    state_dict[name]=torch.unsqueeze(weights[i],0)
-                else:
-                    state_dict[name]=torch.unsqueeze(weights[i][:-1,:],0) 
-            net.load_state_dict(state_dict)   
-
 
     elif model_name=="AGNNNet":
         net=AGNNNet(datasetroot,width)  
@@ -67,7 +41,7 @@ def ChooseModel(model_name,datasetroot,NetInfo):
         
     return net
 
-def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,mark,markWeight,NumCutoff,SaveModule,model_to_save):
+def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,mark,SaveModule,model_to_save):
     best_acc =1  # best test loss
     TrainConvergence=[]
     TestConvergence=[]
@@ -76,8 +50,8 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
             global SVDOrNot
             SVDOrNot=[NumCutoff,"{}-{}".format(mark,epoch)]
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
-            WeightsDynamics=RetainNetworkSize(OptimizedNet,params[2])[1]
-            np.save("{}-{}".format(markWeight,epoch),WeightsDynamics)
+            """WeightsDynamics=RetainNetworkSize(OptimizedNet,params[2])[1]
+            np.save("{}-{}".format(markWeight,epoch),WeightsDynamics)"""
 
         else:
             SVDOrNot=[]
@@ -104,6 +78,13 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
     del OptimizedNet 
     return TrainConvergence, Acc[1]
 
+def SaveDynamicsEvolution(x):
+    if len(SVDOrNot)==3:
+        NumCutoff=SVDOrNot[0]
+        mark=SVDOrNot[1]
+        [U,D,V]=torch.svd(x)
+        DiagElemnt.append(D[0:NumCutoff].detach().tolist())
+        np.save(mark,DiagElemnt)
 
 def ContractionLayerCoefficients(num_features,*args):
     Numlayers,alpha=args
@@ -114,15 +95,6 @@ def ContractionLayerCoefficients(num_features,*args):
         width.append(tmpNew)
         tmpOld=tmpNew
     return width
-
-def SaveDynamicsEvolution(x):
-    if len(SVDOrNot)==3:
-        NumCutoff=SVDOrNot[0]
-        mark=SVDOrNot[1]
-        [U,D,V]=torch.svd(x)
-        DiagElemnt.append(D[0:NumCutoff].detach().tolist())
-        np.save(mark,DiagElemnt)
-
 
 
 def ResumeModel(model_to_save):
@@ -233,7 +205,7 @@ class GAT(torch.nn.Module):
         x, edge_index = data.x, data.edge_index
         DiagElemnt=[]
         for layer in self.layers[:-1]:
-            SaveDynamicsEvolution(x,SVDOrNot)
+            SaveDynamicsEvolution(x)
             x=layer(x, edge_index)
             x =x*torch.sigmoid(x)
         #x = F.dropout(x, training=self.training)
@@ -312,7 +284,7 @@ class SplineNet(torch.nn.Module):
         x, edge_index = data.x, data.edge_index
         DiagElemnt=[]
         for layer in self.layers[:-1]:
-            SaveDynamicsEvolution(x,SVDOrNot)
+            SaveDynamicsEvolution(x)
             x=layer(x, edge_index,pseudo)
             x =x*torch.sigmoid(x)
         #x = F.dropout(x, training=self.training)
@@ -367,8 +339,7 @@ def ModelAndSave(dataset,modelName,train_dataset,params):
 
     else:
         width=ContractionLayerCoefficients(train_dataset.num_features,*params[1:3])
-        NetInfo=[width]
-        net =ChooseModel(modelName,train_dataset,NetInfo)
+        net =ChooseModel(modelName,train_dataset,width)
     return net, model_to_save
 
     
@@ -382,7 +353,7 @@ def RetainNetworkSize(net,ConCoeff):
             if Weight.dim()==3: 
                 Weight=Weight[0].view(Weight.size()[1],Weight.size()[2])
             [U,D,V]=torch.svd(Weight)
-            NumCutoff=SVDOrNot[0]
+            #NumCutoff=SVDOrNot[0]
             #WeightsDynamics.append(D[:NumCutoff].tolist())
             CutoffPoint=FindCutoffPoint(D,ConCoeff)
             NewNetworksize.append(CutoffPoint)
@@ -496,25 +467,26 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         
         
         FileName="{}-{}-param_{}_{}_{}_{}-monte_{}".format(dataset,modelName,params[0],params[1],params[2],params[3],Monte_iter)
-        #if Monte_iter==0:
-        print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        criterion = nn.CrossEntropyLoss()
+        if Monte_iter==0:
+            print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            criterion = nn.CrossEntropyLoss()
+            optimizer =optim.Adam(net.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
+
         net = DataParallel(net)
         net = net.to(device)
-        optimizer =optim.Adam(net.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
-
+      
 
                 #cudnn.benchmark = True
         logging('dataset:{}, Batch size: {}, Number of layers:{} ConCoeff: {}, LR:{}, MonteSize:{}'.format(dataset, params[0], params[1],params[2],params[3],Monte_iter))
         mark="{}{}Convergence/DiagElement-{}".format(savepath,dataset,FileName)
-        markWeight="{}{}Convergence/WeightsDynamicsEvolution-{}".format(savepath,dataset,FileName)
+                     
 
-        PreTrainConvergence=TrainPart(start_epoch,num_pre_epochs,trainloader,
-                                                                net,optimizer,criterion,mark,markWeight,NumCutoff,False,model_to_save)
+        PreTrainConvergence=TrainPart(start_epoch,num_pre_epochs,trainloader,net,optimizer,criterion,NumCutoff,mark,False,model_to_save)
+        print('dataset: {}, model name:{}, the Pre-train error of {} epoches  is:{}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1]))
+
         NewNetworksize=RetainNetworkSize(net,params[2])
-        NetInfo=[NewNetworksize[0:-1]]
-        OptimizedNet=ChooseModel(modelName,datasetroot,NetInfo)
+        OptimizedNet=ChooseModel(modelName,datasetroot,NewNetworksize[0:-1])
         NewNetworksize.insert(0,datasetroot.num_features)
         NewNetworkSizeAdjust.append(NewNetworksize[0:-1])
         print(NewNetworkSizeAdjust)
@@ -529,9 +501,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         elif optimizerName =="Adam":
             optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4, amsgrad=False)
 
-     
-        TrainConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,
-                                                OptimizedNet,optimizerNew,criterionNew,mark,markWeight,NumCutoff,True,model_to_save)
+        TrainConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,mark,True,model_to_save)
         np.save("{}/{}Convergence/TrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
         np.save("{}/{}Convergence/NewNetworkSizeAdjust-{}".format(savepath,dataset,FileName),NewNetworkSizeAdjust)
 
@@ -564,12 +534,11 @@ if __name__=="__main__":
                         help='number of epochs to pretrain (default: 3)')
     parser.add_argument('--num_epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
-    parser.add_argument('--MonteSize', default=1, type=int, help=' Monte Carlos size')
+    parser.add_argument('--MonteSize', default=0, type=int, help=' Monte Carlos size')
     parser.add_argument('--gpus', default="0", type=str, help="gpu devices")
     parser.add_argument('--BatchSize', default=512, type=int, help='batch size')
     parser.add_argument('--NumLayers', default=2, type=int, help='Number of layers')
     parser.add_argument('--PruningTimes', default=2, type=int, help='Pruning times')
-
     parser.add_argument('--savepath', type=str, default='Results/', help='Path to save results')
     parser.add_argument('--return_output', type=str, default=False, help='Whether output')
     parser.add_argument('--resume', '-r', type=str,default=False, help='resume from checkpoint')
