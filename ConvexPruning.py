@@ -13,12 +13,11 @@ from torch_geometric.data import DataListLoader,DataLoader
 import statistics
 import torchvision
 import torchvision.transforms as transforms
-from torch_geometric.nn import GCNConv, ChebConv,global_mean_pool,SplineConv,GraphConv, AGNNConv,TopKPooling,DataParallel
+from torch_geometric.nn import GCNConv, ChebConv,global_mean_pool,SplineConv,GraphConv, AGNNConv,TopKPooling,DataParallel,GATConv
 from pyts.image import RecurrencePlot
 from torch_geometric.datasets import MNISTSuperpixels,Planetoid,TUDataset,PPI,Amazon,Reddit,CoraFull
 import torch_geometric.transforms as T
 from torch_geometric.nn import global_mean_pool as gap, global_max_pool as gmp
-from sklearn.decomposition import NMF
 import numpy as np
 import argparse
 import os,sys
@@ -68,7 +67,7 @@ def ChooseModel(model_name,datasetroot,NetInfo):
         
     return net
 
-def TrainPart(start_epoch,num_epochs,trainloader,testloader,OptimizedNet,optimizerNew,criterionNew,mark,markWeight,NumCutoff,SaveModule,model_to_save):
+def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,mark,markWeight,NumCutoff,SaveModule,model_to_save):
     best_acc =1  # best test loss
     TrainConvergence=[]
     TestConvergence=[]
@@ -83,8 +82,8 @@ def TrainPart(start_epoch,num_epochs,trainloader,testloader,OptimizedNet,optimiz
         else:
             SVDOrNot=[]
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
-        Acc=test(testloader,OptimizedNet,criterionNew)          
-        print('\n Epoch: {},  tain loss: {:.4f}, train acc: {:.4f},test acc: {:.4f} \n'.format(epoch,TrainLoss[0],Acc[0],Acc[1]))
+        Acc=test(trainloader,OptimizedNet,criterionNew)          
+        print('\n Epoch: {},  tain loss: {:.4f}, train acc: {:.4f}, val acc: {:.4f}, test acc: {:.4f} \n'.format(epoch,TrainLoss[0],Acc[0],Acc[1],Acc[2]))
         TrainConvergence.append(statistics.mean(TrainLoss))
                # save model
         if SaveModule and Acc[1] < best_acc:
@@ -115,6 +114,16 @@ def ContractionLayerCoefficients(num_features,*args):
         width.append(tmpNew)
         tmpOld=tmpNew
     return width
+
+def SaveDynamicsEvolution(x,SVDOrNot):
+    if len(SVDOrNot)==3:
+        NumCutoff=SVDOrNot[0]
+        mark=SVDOrNot[1]
+        [U,D,V]=torch.svd(x)
+        DiagElemnt.append(D[0:NumCutoff].detach().tolist())
+        np.save(mark,DiagElemnt)
+
+
 
 def ResumeModel(model_to_save):
     # Load checkpoint.
@@ -200,12 +209,31 @@ class GCN(torch.nn.Module):
         x, edge_index = data.x, data.edge_index
         DiagElemnt=[]
         for layer in self.layers[:-1]:
-            if len(SVDOrNot)==2:
-                NumCutoff=SVDOrNot[0]
-                mark=SVDOrNot[1]
-                [U,D,V]=torch.svd(x)
-                DiagElemnt.append(D[0:NumCutoff].detach().tolist())
-                np.save(mark,DiagElemnt)                 
+            SaveDynamicsEvolution(x,SVDOrNot)
+            x=layer(x, edge_index)
+            x =x*torch.sigmoid(x)
+        #x = F.dropout(x, training=self.training)
+        x = F.log_softmax(self.layers[-1](x,edge_index),dim=1)
+        return x
+    
+    
+class GAT(torch.nn.Module):
+    def __init__(self,datasetroot,width):
+        super(GAT, self).__init__()
+        self.NumLayers=len(width)
+        self.layers = nn.ModuleList()
+        self.layers.append(GATConv(datasetroot.num_features, width[0]))
+        for i in range(self.NumLayers-1):
+            layer=GATConv(width[i],width[i+1])
+            nn.init.xavier_uniform_(layer.weight)
+            self.layers.append(layer)
+        self.layers.append(GATConv(width[-1], datasetroot.num_classes))
+
+    def forward(self,data):
+        x, edge_index = data.x, data.edge_index
+        DiagElemnt=[]
+        for layer in self.layers[:-1]:
+            SaveDynamicsEvolution(x,SVDOrNot)
             x=layer(x, edge_index)
             x =x*torch.sigmoid(x)
         #x = F.dropout(x, training=self.training)
@@ -271,16 +299,25 @@ class ChebConvNet(torch.nn.Module):
 class SplineNet(torch.nn.Module):
     def __init__(self,datasetroot, width):
         super(SplineNet, self).__init__()
-        self.conv1 = SplineConv(datasetroot.num_features, 16, dim=1, kernel_size=2)
-        self.conv2 = SplineConv(16, datasetroot.num_classes, dim=1, kernel_size=2)
+        self.NumLayers=len(width)
+        self.layers = nn.ModuleList()
+        self.layers.append(SplineConv(datasetroot.num_features, width[0], dim=1, kernel_size=2))
+        for i in range(self.NumLayers-1):
+            layer=SplineConv(width[i],width[i+1], dim=1, kernel_size=2)
+            nn.init.xavier_uniform_(layer.weight)
+            self.layers.append(layer)
+        self.layers.append(SplineConv(width[-1], datasetroot.num_classes, dim=1, kernel_size=2))
 
     def forward(self,data):
-        x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
-        x = F.dropout(x, training=self.training)
-        x = F.elu(self.conv1(x, edge_index, torch.rand(edge_index.size()[0])))
-        x = F.dropout(x, training=self.training)
-        x = self.conv2(x, edge_index, 2)
-        return F.log_softmax(x, dim=1)
+        x, edge_index = data.x, data.edge_index
+        DiagElemnt=[]
+        for layer in self.layers[:-1]:
+            SaveDynamicsEvolution(x,SVDOrNot)
+            x=layer(x, edge_index,pseudo)
+            x =x*torch.sigmoid(x)
+        #x = F.dropout(x, training=self.training)
+        x = F.log_softmax(self.layers[-1](x,edge_index),dim=1)
+        return x
     
 class topk_pool_Net(torch.nn.Module):
     def __init__(self,datasetroot, width):
@@ -348,16 +385,16 @@ def RetainNetworkSize(net,ConCoeff):
                 Weight=Weight[0].view(Weight.size()[1],Weight.size()[2])
             [U,D,V]=torch.svd(Weight)
             NumCutoff=SVDOrNot[0]
-            WeightsDynamics.append(D[:NumCutoff].tolist())
+            #WeightsDynamics.append(D[:NumCutoff].tolist())
             CutoffPoint=FindCutoffPoint(D,ConCoeff)
             NewNetworksize.append(CutoffPoint)
-            NewNetworkWeight.append(U[:,:CutoffPoint]@V[:CutoffPoint,:CutoffPoint])
+            #NewNetworkWeight.append(U[:,:CutoffPoint]@V[:CutoffPoint,:CutoffPoint])
             #NewNetworkWeight.append(U[:,:CutoffPoint]@torch.diag(D[:CutoffPoint])@V[:CutoffPoint,:CutoffPoint])
 
             """NewWeight= torch.mm(Weight,V[:,:CutoffPoint])
             net.conv2.weight = torch.nn.Parameter( NewWeight)"""
             #print("Original size is {},After SVD is {}".format(Weight.shape[1],CutoffPoint))
-    return NewNetworksize,NewNetworkWeight,WeightsDynamics
+    return NewNetworksize,WeightsDynamics
 
 def train(trainloader,net,optimizer,criterion):
     net.train()
@@ -380,14 +417,14 @@ def train(trainloader,net,optimizer,criterion):
     return train_loss
 
        
-def test(testloader,net,criterion):
+def test(trainloader,net,criterion):
     net.eval()
     accs= []
     with torch.no_grad():
-        for data_list in testloader:
+        for data_list in trainloader:
             output= net(data_list)
             for data in data_list:
-                for _, mask in data('train_mask', 'test_mask'):
+                for _, mask in data('train_mask', 'val_mask','test_mask'):
                     y = torch.cat([data.y[mask] for data in data_list]).to(output.device)
                     pred= output.max(1)[1][mask]
                     acc=pred.eq(data.y[mask].to(pred.device)).sum().item()/len(data.y[mask])
@@ -415,20 +452,11 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         if dataset=='Cora' or dataset =='Citeseer' or dataset =='Pubmed':
             datasetroot= Planetoid(root=root, name=dataset, transform =T.NormalizeFeatures()).shuffle()        
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
-            testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
             [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params)
             
         elif dataset =="CoraFull":
             datasetroot = CoraFull(root=root,transform =T.NormalizeFeatures()).shuffle()
-            data=datasetroot[0]
-            data.train_mask = torch.zeros(data.num_nodes, dtype=torch.uint8)
-            data.train_mask[:data.num_nodes - 1000] = 1
-            data.val_mask = None
-            data.test_mask = torch.zeros(data.num_nodes, dtype=torch.uint8)
-            data.test_mask[data.num_nodes - 500:] = 1
-            
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
-            testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
             [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params)
             
         elif dataset=='ENZYMES' or dataset=='MUTAG':
@@ -484,10 +512,10 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         mark="{}{}Convergence/DiagElement-{}".format(savepath,dataset,FileName)
         markWeight="{}{}Convergence/WeightsDynamicsEvolution-{}".format(savepath,dataset,FileName)
 
-        PreTrainConvergence=TrainPart(start_epoch,num_pre_epochs,trainloader,testloader,
+        PreTrainConvergence=TrainPart(start_epoch,num_pre_epochs,trainloader,
                                                                 net,optimizer,criterion,mark,markWeight,NumCutoff,False,model_to_save)
-        NewNetworksize,NewNetworkWeight=RetainNetworkSize(net,params[2])[:2]
-        NetInfo=[NewNetworksize[0:-1],NewNetworkWeight]
+        NewNetworksize=RetainNetworkSize(net,params[2])[0]
+        NetInfo=[NewNetworksize[0:-1]]
         OptimizedNet=ChooseModel(modelName,datasetroot,NetInfo)
         NewNetworksize.insert(0,datasetroot.num_features)
         NewNetworkSizeAdjust.append(NewNetworksize[0:-1])
@@ -504,7 +532,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4, amsgrad=False)
 
      
-        TrainConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,testloader,
+        TrainConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,
                                                 OptimizedNet,optimizerNew,criterionNew,mark,markWeight,NumCutoff,True,model_to_save)
         np.save("{}/{}Convergence/TrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
         np.save("{}/{}Convergence/NewNetworkSizeAdjust-{}".format(savepath,dataset,FileName),NewNetworkSizeAdjust)
@@ -513,7 +541,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         
         #np.save(savepath+'TestConvergence-'+FileName,TestConvergence)
         #torch.cuda.empty_cache()
-        print('dataset:{}, model name;{}, resized network size is {}, train error is:{}, test acc is {}'.format(dataset,modelName,NewNetworksize[0:-1],TrainConvergence[-1],TestAcc[-1]))
+        print('dataset: {}, model name:{}, resized network size is {}, the  train error of {} epoches  is:{}, test acc is {}'.format(dataset,modelName,NewNetworksize[0:-1],num_epochs,TrainConvergence[-1],TestAcc))
     print_nvidia_useage()
 
 
@@ -526,17 +554,17 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser(description='PyTorch Training')
     parser.add_argument('--dataset',default='Cora',type=str, help='dataset to train')
     parser.add_argument('--modelName',default='GCN',type=str, help='model to use')
-    parser.add_argument('--LR', default=0.5, type=float, help='learning rate') 
+    parser.add_argument('--LR', default=0.1, type=float, help='learning rate') 
     parser.add_argument('--ConCoeff', default=0.99, type=float, help='contraction coefficients')
     parser.add_argument('--CutoffCoeff', default=0.1, type=float, help='contraction coefficients')
     parser.add_argument('--NumCutoff', default=5, type=float, help='contraction coefficients')
     parser.add_argument('--rho', type=float, default=1e-2, metavar='R',
-                        heixtelp='cardinality weight (default: 1e-2)')
+                        help='cardinality weight (default: 1e-2)')
     parser.add_argument('--optimizer',default='SGD',type=str, help='optimizer to train')
 
     parser.add_argument('--num_pre_epochs', type=int, default=30, metavar='P',
                         help='number of epochs to pretrain (default: 3)')
-    parser.add_argument('--num_epochs', type=int, default=200, metavar='N',
+    parser.add_argument('--num_epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--MonteSize', default=1, type=int, help=' Monte Carlos size')
     parser.add_argument('--gpus', default="0", type=str, help="gpu devices")
