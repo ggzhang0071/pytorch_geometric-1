@@ -21,6 +21,7 @@ from torch_geometric.nn import global_mean_pool as gap, global_max_pool as gmp
 import numpy as np
 import argparse
 import os,sys
+global resume
 
 def ChooseModel(model_name,datasetroot,NetInfo):
     if len(NetInfo)==1:
@@ -83,7 +84,6 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
                                 'TrainConvergence': TrainConvergence,
                                 'TestAcc': Acc[1],
                                 'epoch': num_epochs,
-                                'NewNetworksize':NewNetworkSizeAdjust,
                        }
                 if not os.path.isdir('checkpoint'):
                     os.mkdir('checkpoint')
@@ -124,8 +124,7 @@ def ResumeModel(model_to_save):
     TrainConvergence = checkpoint['TrainConvergence']
     Acc = checkpoint['TestAcc']
     start_epoch = checkpoint['epoch']
-    NewNetworksize=checkpoint['NewNetworksize']
-    return net,NewNetworksize,TrainConvergence,Acc,start_epoch
+    return net,TrainConvergence,Acc,start_epoch
 
 def FindCutoffPoint(DiagValues,coefficient):
     for i in range(DiagValues.shape[0]-1):
@@ -350,10 +349,10 @@ class topk_pool_Net(torch.nn.Module):
         x = F.log_softmax(self.layers[-1](x),dim=1)
         return x
     
-def ModelAndSave(dataset,modelName,train_dataset,params,resume): 
+def ModelAndSave(dataset,modelName,train_dataset,params,num_epochs): 
     model_to_save='./checkpoint/{}-{}-param_{}_{}_{}_{}-ckpt.pth'.format(dataset,modelName,params[0],params[1],params[2],params[3])
     if resume=="True" and os.path.exists(model_to_save):
-        [net,NewNetworksize,TrainConvergence,TestConvergence,start_epoch]=ResumeModel(model_to_save)
+        [net,TrainConvergence,Acc,start_epoch]=ResumeModel(model_to_save)
         if start_epoch>=num_epochs-1:
             pass
 
@@ -390,8 +389,10 @@ def RetainNetworkSize(net,ConCoeff):
 def train(trainloader,net,optimizer,criterion):
     net.train()
     train_loss = []
+    Bath_data_list=[]
+    optimizer.zero_grad()
+
     for data_list in trainloader:
-        optimizer.zero_grad()
         output=net(data_list)
         for data in data_list:
             target= torch.cat([data.y[data.train_mask]]).to(output.device)
@@ -430,10 +431,10 @@ def test(trainloader,net,criterion):
 
 
 
-def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,optimizerName,MonteSize,savepath,resume):
+def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,optimizerName,MonteSize,savepath):
     Batch_size=int(params[0]) 
     root='/git/data/GraphData/'+dataset
-
+    TestAccs=[]
     for Monte_iter in range(MonteSize):
         # Data
         start_epoch = 0  # start from epoch 0 or last checkpoint epoch         
@@ -443,31 +444,30 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         if dataset=='Cora' or dataset =='Citeseer' or dataset =='Pubmed':
             datasetroot= Planetoid(root=root, name=dataset, transform =T.NormalizeFeatures()).shuffle()        
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
-            [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,resume)
+            [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,num_epochs)
             
         elif dataset =="CoraFull":
             datasetroot = CoraFull(root=root,transform =T.NormalizeFeatures()).shuffle()
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
-            [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,resume)
+            [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,num_epochs)
             
         elif dataset=='ENZYMES' or dataset=='MUTAG':
             datasetroot=TUDataset(root,name=dataset,use_node_attr=True)
-            trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
-            testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
-            [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params)
+            trainloader = DataLoader(datasetroot, batch_size=Batch_size, shuffle=True)
+            [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,num_epochs)
                   
         elif dataset =="PPI":
             train_dataset = PPI(root, split='train')
             test_dataset = PPI(root, split='test')
             trainloader = DataListLoader(train_dataset, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(test_dataset, batch_size=100, shuffle=False)
-            [net,model_to_save]=ModelAndSave(dataset,modelName,train_dataset,params)
+            [net,model_to_save]=ModelAndSave(dataset,modelName,train_dataset,params,num_epochs)
             
         elif dataset =="Reddit":
             datasetroot=Reddit(root)   
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=2, shuffle=False)
-            [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params)
+            [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,num_epochs)
 
         elif dataset=="Amazon":
             datasetroot=Amazon(root, "Photo", transform=None, pre_transform=None)
@@ -532,14 +532,13 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         
         #np.save(savepath+'TestConvergence-'+FileName,TestConvergence)
         #torch.cuda.empty_cache()
-        print('dataset: {}, model name:{}, resized network size is {}, the train error of {} epoches  is:{}, test acc is {}'.format(dataset,modelName,NewNetworksize[0:-1],num_epochs,TrainConvergence[-1],TestAcc))
+        print('dataset: {}, model name:{}, resized network size is {}, the train error of {} epoches  is:{}, test acc is {}\n'.format(dataset,modelName,NewNetworksize[0:-1],num_epochs,TrainConvergence[-1],TestAcc))
+    np.save("{}/{}Convergence/MeanTestAccs-{}".format(savepath,dataset,FileName),TestAccs.append(TestAcc))
+    TestAccs.append(TestAcc)
+    print("The change of test error is:{}".format(TestAccs))
     print_nvidia_useage()
 
 
-    if return_output==True:
-        return TestConvergence[-1], net.module.fc.weight
-    else:
-        pass
 
 if __name__=="__main__":   
     parser = argparse.ArgumentParser(description='PyTorch Training')
@@ -557,7 +556,7 @@ if __name__=="__main__":
                         help='number of epochs to pretrain (default: 3)')
     parser.add_argument('--num_epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
-    parser.add_argument('--MonteSize', default=0, type=int, help=' Monte Carlos size')
+    parser.add_argument('--MonteSize', default=1, type=int, help=' Monte Carlos size')
     parser.add_argument('--gpus', default="0", type=str, help="gpu devices")
     parser.add_argument('--BatchSize', default=512, type=int, help='batch size')
     parser.add_argument('--NumLayers', default=2, type=int, help='Number of layers')
@@ -574,10 +573,11 @@ if __name__=="__main__":
     print_to_logging=args.print_to_logging
     print_device_useage=args.print_device_useage
     return_output=args.return_output
+    resume=args.resume
     save_recurrence_plots=args.save_recurrence_plots
     #params=[args.BatchSize,args.NumLayers,args.args.ConCoeff,args.CutoffCoeff]
     params=[args.BatchSize,args.NumLayers,args.ConCoeff,args.LR]
     
-    TrainingNet(args.dataset,args.modelName,params,args.num_pre_epochs,args.num_epochs,args.NumCutoff,args.optimizer,args.MonteSize,args.savepath,    args.resume)
+    TrainingNet(args.dataset,args.modelName,params,args.num_pre_epochs,args.num_epochs,args.NumCutoff,args.optimizer,args.MonteSize,args.savepath)
 
     
