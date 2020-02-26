@@ -441,7 +441,7 @@ def test(testloader,net,criterion):
 def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,optimizerName,MonteSize,savepath):
     Batch_size=int(params[0]) 
     root='/git/data/GraphData/'+dataset
-    TestAccs=[]
+    TestAccs=[]    
     for Monte_iter in range(MonteSize):
         # Data
         start_epoch = 0  # start from epoch 0 or last checkpoint epoch         
@@ -459,32 +459,32 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,num_epochs)
             
+        elif dataset=="Amazon":
+            datasetroot=Amazon(root, "Photo", transform=None, pre_transform=None)
+            trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
+            testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
+            [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,num_epochs)
+            
         elif dataset=='ENZYMES' or dataset=='MUTAG':
             datasetroot=TUDataset(root,name=dataset,use_node_attr=True)
-            trainloader = DataLoader(datasetroot, batch_size=Batch_size, shuffle=True)
+            trainloader = DataLoader(datasetroot, batch_size=1, shuffle=True)
             testloader = DataLoader(datasetroot, batch_size=1, shuffle=True)
             [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,num_epochs)
                   
         elif dataset =="PPI":
             train_dataset = PPI(root, split='train')
             test_dataset = PPI(root, split='test')
-            trainloader = DataListLoader(train_dataset, batch_size=Batch_size, shuffle=True)
-            testloader = DataListLoader(test_dataset, batch_size=1, shuffle=False)
+            trainloader = DataLoader(train_dataset, batch_size=Batch_size, shuffle=True)
+            testloader = DataLoader(test_dataset, batch_size=1, shuffle=False)
             [net,model_to_save]=ModelAndSave(dataset,modelName,train_dataset,params,num_epochs)
             criterion = torch.nn.BCEWithLogitsLoss()
 
         elif dataset =="Reddit":
             datasetroot=Reddit(root)   
-            trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
+            trainloader = DataListLoader(datasetroot, batch_size=1, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=2, shuffle=False)
             [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,num_epochs)
             criterion = torch.nn.BCEWithLogitsLoss()
-
-        elif dataset=="Amazon":
-            datasetroot=Amazon(root, "Photo", transform=None, pre_transform=None)
-            trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
-            testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
-            [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,num_epochs)
 
         elif dataset=='MNIST':
             datasetroot = MNISTSuperpixels(root=root, transform=T.Cartesian())
@@ -500,12 +500,11 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         
         
         FileName="{}-{}-param_{}_{}_{}_{}-monte_{}".format(dataset,modelName,params[0],params[1],params[2],params[3],Monte_iter)
-        if Monte_iter==0:
-            print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            optimizer =optim.Adam(net.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
-            criterion = nn.CrossEntropyLoss()
-
+        
+        print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        optimizer =optim.Adam(net.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
+        criterion = nn.CrossEntropyLoss()
         net = DataParallel(net)
         net = net.to(device)
       
@@ -516,7 +515,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
                      
 
         PreTrainConvergence,PreTestConvergence,PreTestAcc=TrainPart(start_epoch,num_pre_epochs,trainloader,testloader,net,optimizer,criterion,NumCutoff,mark,False,model_to_save)
-        print('dataset: {}, model name:{}, Number epoches:{},  Pre-train error is: {}, Pre-test error is: {}, test acc is {}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreTestConvergence[-1],PreTestAcc[-1]))
+        print('dataset: {}, model name: {}, Number epoches: {},  Pre-train error is: {}, Pre-test error is: {}, test acc is {}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreTestConvergence[-1],PreTestAcc[-1]))
 
         NewNetworksize,NewNetworkWeight=RetainNetworkSize(net,params[2])[0:2]
         NetworkInfo=[NewNetworksize[0:-1],NewNetworkWeight]
@@ -543,8 +542,8 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         #torch.cuda.empty_cache()
         
         print('dataset: {}, model name:{}, resized network size is {},  Number epoches:{},  Train error is: {}, Test error is: {}, test acc is {}\n'.format(dataset,modelName,NewNetworksize[0:-1],num_epochs,TrainConvergence[-1],TestConvergence[-1],TestAcc[-1]))
-    np.save("{}/{}Convergence/MeanTestAccs-{}".format(savepath,dataset,FileName),TestAccs.append(TestAcc))
-    TestAccs.append(TestAcc)
+        TestAccs.append(TestAcc)
+        np.save("{}/{}Convergence/MeanTestAccs-{}".format(savepath,dataset,FileName),TestAccs)
     print("The change of test error is:{}".format(TestAccs))
     print_nvidia_useage()
 
@@ -552,9 +551,9 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
 
 if __name__=="__main__":   
     parser = argparse.ArgumentParser(description='PyTorch Training')
-    parser.add_argument('--dataset',default='PPI',type=str, help='dataset to train')
+    parser.add_argument('--dataset',default='ENZYMES',type=str, help='dataset to train')
     parser.add_argument('--modelName',default='GCN',type=str, help='model to use')
-    parser.add_argument('--LR', default=0.5, type=float, help='learning rate') 
+    parser.add_argument('--LR', default=0.2, type=float, help='learning rate') 
     parser.add_argument('--ConCoeff', default=0.99, type=float, help='contraction coefficients')
     parser.add_argument('--CutoffCoeff', default=0.1, type=float, help='contraction coefficients')
     parser.add_argument('--NumCutoff', default=5, type=float, help='contraction coefficients')
