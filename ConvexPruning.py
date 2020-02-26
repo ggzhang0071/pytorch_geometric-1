@@ -135,7 +135,7 @@ def FindCutoffPoint(DiagValues,coefficient):
         return CutoffPoint
     except:
         return DiagValues.shape[0] 
-    
+
 """def init_weights(m):
     if type(m) == nn.Linear:
         torch.nn.init.orthogonal_(m.weight)
@@ -147,11 +147,11 @@ def weights_init(m):
         torch.nn.init.orthogonal_(m.weight.data)
         #torch.nn.init.xavier()
         m.bias.data.fill_(0.01)
-        
+
 def weight_reset(m):
     if isinstance(m, GCNConv) :
         m.reset_parameters()        
-        
+
 def logging(message):
     global  print_to_logging
     if print_to_logging:
@@ -165,7 +165,7 @@ def print_nvidia_useage():
         os.system('\n echo check gpu;nvidia-smi;echo check done \r')
     else:
         pass
-    
+
 def save_recurrencePlots(net,save_recurrencePlots_file):
     global save_recurrence_plots
     if save_recurrence_plots:
@@ -206,8 +206,8 @@ class GCN(torch.nn.Module):
         #x = F.dropout(x, training=self.training)
         x = F.log_softmax(self.layers[-1](x,edge_index),dim=1)
         return x
-    
-    
+
+
 class GAT(torch.nn.Module):
     def __init__(self,datasetroot,width):
         super(GAT, self).__init__()
@@ -309,7 +309,7 @@ class SplineNet(torch.nn.Module):
         #x = F.dropout(x, training=self.training)
         x = F.log_softmax(self.layers[-1](x,edge_index),dim=1)
         return x
-    
+
 class topk_pool_Net(torch.nn.Module):
     def __init__(self,datasetroot, width):
         super(topk_pool_Net, self).__init__()
@@ -348,7 +348,7 @@ class topk_pool_Net(torch.nn.Module):
             x = F.dropout(x, p=0.5, training=self.training)
         x = F.log_softmax(self.layers[-1](x),dim=1)
         return x
-    
+
 def ModelAndSave(dataset,modelName,train_dataset,params,num_epochs): 
     model_to_save='./checkpoint/{}-{}-param_{}_{}_{}_{}-ckpt.pth'.format(dataset,modelName,params[0],params[1],params[2],params[3])
     if resume=="True" and os.path.exists(model_to_save):
@@ -362,7 +362,7 @@ def ModelAndSave(dataset,modelName,train_dataset,params,num_epochs):
         net =ChooseModel(modelName,train_dataset,NetworkInfo)
     return net, model_to_save
 
-    
+
 # Training
 
 def RetainNetworkSize(net,ConCoeff):
@@ -408,7 +408,7 @@ def train(trainloader,net,optimizer,criterion):
         
     return train_loss
 
-       
+
 def test(trainloader,net,criterion):
     net.eval()
     accs= []

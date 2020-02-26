@@ -76,27 +76,27 @@ def TrainPart(start_epoch,num_epochs,trainloader,testloader,OptimizedNet,optimiz
         else:
             SVDOrNot=[]
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
-        TestLoss,TestAcc=test(testloader,OptimizedNet,criterionNew)          
-        print('\n Epoch: {},  tain loss: {:.4f}, test loss: {:.4f},test acc: {:.4f} \n'.format(epoch,TrainLoss[0],TestLoss[0],TestAcc[0]))
+        [TestLoss,TestAcc]=test(testloader,OptimizedNet,criterionNew)          
+        print('\n Epoch: {},  tain loss: {:.4f}, test loss: {:.4f},test acc: {:.4f} \n'.format(epoch,TrainLoss[-1],TestLoss[-1],TestAcc[-1]))
         TrainConvergence.append(statistics.mean(TrainLoss))
                # save model
-        if SaveModule and TestAcc < best_acc:
+        if SaveModule and TestAcc[-1] < best_acc:
                 state = {'net': OptimizedNet.module,
                                 'TrainConvergence': TrainConvergence,
-                                'TestAcc': Acc,
+                                'TestAcc': TestAcc,
                                 'epoch': num_epochs,
                        }
                 if not os.path.isdir('checkpoint'):
                     os.mkdir('checkpoint')
                 torch.save(state, model_to_save)
-                best_acc = TestAcc
+                best_acc = TestAcc[-1]
           
                 ## save recurrence plots
         """if epoch%20==0:
                 save_recurrencePlots_file="../Results/RecurrencePlots/RecurrencePlots_{}_{}_BatchSize{}    \_ConCoeffi{}_epoch{}.png".format(dataset, model_name,params[0],params[1],epoch)
             save_recurrencePlots(net,save_recurrencePlots_file)"""
     del OptimizedNet 
-    return TrainConvergence, TestAcc
+    return TrainConvergence, TestLoss,TestAcc
 
 def SaveDynamicsEvolution(x):
     if len(SVDOrNot)==3:
@@ -416,11 +416,11 @@ def train(trainloader,net,optimizer,criterion):
        
 def test(testloader,net,criterion):
     net.eval()
-    test_loss, accs= [[],]*2
+    test_loss, accs= [],[]
     with torch.no_grad():
         for data_list in testloader:
             output= net(data_list)
-            pred= output.max
+            pred= output.max(1)[1]
             if len(data_list)>1:
                 y=data_list[0].y
                 for data in data_list[1:]:
@@ -431,8 +431,7 @@ def test(testloader,net,criterion):
             loss = criterion(output, y.to(output.device))
             test_loss.append(loss.item())
                         
-            acc=metrics.f1_score(y.numpy(), output.to("cpu").numpy(), average='micro')
-
+            acc=(pred.eq(y.to(pred.device)).sum().item())/len(y)
             accs.append(acc)
 
     #print('\n Test set: Average loss: {:.4f} \n'.format(test_loss[-1]))
@@ -463,6 +462,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         elif dataset=='ENZYMES' or dataset=='MUTAG':
             datasetroot=TUDataset(root,name=dataset,use_node_attr=True)
             trainloader = DataLoader(datasetroot, batch_size=Batch_size, shuffle=True)
+            testloader = DataLoader(datasetroot, batch_size=1, shuffle=True)
             [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,num_epochs)
                   
         elif dataset =="PPI":
@@ -475,7 +475,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
 
         elif dataset =="Reddit":
             datasetroot=Reddit(root)   
-            trainloader = DataListLoader(datasetroot, batch_size=1, shuffle=True)
+            trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=2, shuffle=False)
             [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,num_epochs)
             criterion = torch.nn.BCEWithLogitsLoss()
@@ -485,7 +485,6 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
             [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,num_epochs)
-            criterion = nn.CrossEntropyLoss()
 
         elif dataset=='MNIST':
             datasetroot = MNISTSuperpixels(root=root, transform=T.Cartesian())
@@ -505,6 +504,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             optimizer =optim.Adam(net.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
+            criterion = nn.CrossEntropyLoss()
 
         net = DataParallel(net)
         net = net.to(device)
@@ -515,8 +515,8 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         mark="{}{}Convergence/DiagElement-{}".format(savepath,dataset,FileName)
                      
 
-        PreTrainConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,trainloader,testloader,net,optimizer,criterion,NumCutoff,mark,False,model_to_save)
-        print('dataset: {}, model name:{}, the Pre-train error of {} epoches  is:  {}, test acc is {}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreAcc))
+        PreTrainConvergence,PreTestConvergence,PreTestAcc=TrainPart(start_epoch,num_pre_epochs,trainloader,testloader,net,optimizer,criterion,NumCutoff,mark,False,model_to_save)
+        print('dataset: {}, model name:{}, Number epoches:{},  Pre-train error is: {}, Pre-test error is: {}, test acc is {}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreTestConvergence[-1],PreTestAcc[-1]))
 
         NewNetworksize,NewNetworkWeight=RetainNetworkSize(net,params[2])[0:2]
         NetworkInfo=[NewNetworksize[0:-1],NewNetworkWeight]
@@ -535,15 +535,14 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         elif optimizerName =="Adam":
             optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4, amsgrad=False)
 
-        TrainConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,testloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,mark,True,model_to_save)
+        TrainConvergence,TestConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,testloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,mark,True,model_to_save)
         np.save("{}/{}Convergence/TrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
         np.save("{}/{}Convergence/NewNetworkSizeAdjust-{}".format(savepath,dataset,FileName),NewNetworkSizeAdjust)
 
-
-        
         #np.save(savepath+'TestConvergence-'+FileName,TestConvergence)
         #torch.cuda.empty_cache()
-        print('dataset: {}, model name:{}, resized network size is {}, the train error of {} epoches  is:{}, test acc is {}\n'.format(dataset,modelName,NewNetworksize[0:-1],num_epochs,TrainConvergence[-1],TestAcc))
+        
+        print('dataset: {}, model name:{}, resized network size is {},  Number epoches:{},  Train error is: {}, Test error is: {}, test acc is {}\n'.format(dataset,modelName,NewNetworksize[0:-1],num_epochs,TrainConvergence[-1],TestConvergence[-1],TestAcc[-1]))
     np.save("{}/{}Convergence/MeanTestAccs-{}".format(savepath,dataset,FileName),TestAccs.append(TestAcc))
     TestAccs.append(TestAcc)
     print("The change of test error is:{}".format(TestAccs))
