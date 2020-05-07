@@ -18,22 +18,22 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
             for file in glob.glob("{}*{}*{}*{}*{}*{}*{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[i],coefficientsSecond[0],coefficientsThree[0],coefficientsFour[0])):
                 print(file)
                 TrainConvergence=np.load(file).tolist()
-                if max(TrainConvergence)>5:
+                if max(TrainConvergence)>20:
                     print("{} maximum is:{}".format(file,max(TrainConvergence)))
                     os.remove(file)
-                if len(TrainConvergence)>40 and max(TrainConvergence)<=5:
+                if len(TrainConvergence)>40 and max(TrainConvergence)<=20:
                     TrainConvergenceAll.append(TrainConvergence)
             print("coefficient of {} num is: {}".format(coefficients[i],len(TrainConvergenceAll)))            
             mu = np.array(TrainConvergenceAll).mean(axis=0)
             standard_dev = np.array(TrainConvergenceAll).std(axis=0)
             
             if i<parts:
-                plt.plot(x,mu[start_plot:start_plot+epochs], lw=1.5)
+                plt.plot(x[start_plot:start_plot+epochs],mu[start_plot:start_plot+epochs], lw=1.5)
                 
             else:
-                plt.plot(x,mu[start_plot:start_plot+epochs],'--', lw=1.5)
+                plt.plot(x[start_plot:start_plot+epochs],mu[start_plot:start_plot+epochs],'--', lw=1.5)
             
-            plt.fill_between(x, (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],alpha=0.5)   
+            #plt.fill_between(x[start_plot:start_plot+epochs], (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],alpha=0.5)   
  
             
     elif len(coefficientsSecond)>1:

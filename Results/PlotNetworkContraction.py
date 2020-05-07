@@ -22,6 +22,7 @@ def PlotNetworkContractionNpy(dataset,modelName,file_constraited,coefficientsFir
                 TrainConvergenceAll.append(TrainConvergence)
             print("coefficient of {} num is: {}".format(coefficients[i],len(TrainConvergenceAll)))            
             mu = np.array(TrainConvergenceAll).mean(axis=0)
+            print("contraction coefficients is :{}".format(mu))
             standard_dev = np.array(TrainConvergenceAll).std(axis=0)
             plt.plot(mu, lw=1.5)
             plt.fill_between((mu-standard_dev),(mu+standard_dev),alpha=0.5)  
