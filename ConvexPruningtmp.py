@@ -14,7 +14,7 @@ import statistics
 import torchvision
 import torchvision.transforms as transforms
 from torch_geometric.nn import GCNConv, ChebConv,global_mean_pool,SplineConv,GraphConv, AGNNConv,TopKPooling,DataParallel,GATConv
-from pyts.image import RecurrencePlot
+#from pyts.image import RecurrencePlot
 from torch_geometric.datasets import MNISTSuperpixels,Planetoid,TUDataset,PPI,Amazon,Reddit,CoraFull
 import torch_geometric.transforms as T
 from torch_geometric.nn import global_mean_pool as gap, global_max_pool as gmp
@@ -23,34 +23,13 @@ import argparse
 import os,sys
 global resume
 
-def ChooseModel(model_name,datasetroot,NetInfo):
-    if len(NetInfo)==1:
-        width=NetInfo[0]
-    elif len(NetInfo)==2:
-        width=NetInfo[0]
-        weights=NetInfo[1]
-    else:
-        raise Exception("wrong weight info")
-        
+def ChooseModel(model_name,datasetroot,width):
     if model_name=="GCN":  
-        net=GCN(datasetroot,width)
-        if len(NetInfo)==2:
-            state_dict = net.state_dict()
-            for i in range(len(weights)-1):
-                name='layers.{}.weight'.format(i)
-                if i==0:
-                    state_dict[name]=weights[i]
-                else:
-                    state_dict[name]=weights[i][:-1,:]
-            net.load_state_dict(state_dict) 
-            
-    elif model_name=="GAT":     
-        net=GAT(datasetroot,width)    
+        net=GCN(datasetroot,width) 
     elif model_name=="SplineNet":     
         net=SplineNet(datasetroot,width) 
     elif model_name=="ChebConvNet":
         net=ChebConvNet(datasetroot,width)  
-
     elif model_name=="AGNNNet":
         net=AGNNNet(datasetroot,width)  
     elif model_name=="topk_pool_Net":
@@ -60,7 +39,7 @@ def ChooseModel(model_name,datasetroot,NetInfo):
         
     return net
 
-def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,mark,SaveModule,model_to_save):
+def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,mark,markweights,SaveModule,model_to_save):
     best_acc =1  # best test loss
     TrainConvergence=[]
     TestConvergence=[]
@@ -69,8 +48,8 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
             global SVDOrNot
             SVDOrNot=[NumCutoff,"{}-{}".format(mark,epoch)]
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
-            """WeightsDynamics=RetainNetworkSize(OptimizedNet,params[2])[1]
-            np.save("{}-{}".format(markWeight,epoch),WeightsDynamics)"""
+            """NewNetworkWeight=RetainNetworkSize(OptimizedNet,params[2])[1]
+            torch.save(NewNetworkWeight[0:-1],"{}-{}.pt".format(markweights,epoch))"""
 
         else:
             SVDOrNot=[]
@@ -135,7 +114,7 @@ def FindCutoffPoint(DiagValues,coefficient):
         return CutoffPoint
     except:
         return DiagValues.shape[0] 
-    
+
 """def init_weights(m):
     if type(m) == nn.Linear:
         torch.nn.init.orthogonal_(m.weight)
@@ -147,11 +126,11 @@ def weights_init(m):
         torch.nn.init.orthogonal_(m.weight.data)
         #torch.nn.init.xavier()
         m.bias.data.fill_(0.01)
-        
+
 def weight_reset(m):
     if isinstance(m, GCNConv) :
         m.reset_parameters()        
-        
+
 def logging(message):
     global  print_to_logging
     if print_to_logging:
@@ -165,7 +144,7 @@ def print_nvidia_useage():
         os.system('\n echo check gpu;nvidia-smi;echo check done \r')
     else:
         pass
-    
+
 def save_recurrencePlots(net,save_recurrencePlots_file):
     global save_recurrence_plots
     if save_recurrence_plots:
@@ -206,8 +185,8 @@ class GCN(torch.nn.Module):
         #x = F.dropout(x, training=self.training)
         x = F.log_softmax(self.layers[-1](x,edge_index),dim=1)
         return x
-    
-    
+
+
 class GAT(torch.nn.Module):
     def __init__(self,datasetroot,width):
         super(GAT, self).__init__()
@@ -274,12 +253,7 @@ class ChebConvNet(torch.nn.Module):
         x, edge_index = data.x, data.edge_index
         DiagElemnt=[]
         for layer in self.layers[:-1]:
-            if len(SVDOrNot)==2:
-                NumCutoff=SVDOrNot[0]
-                mark=SVDOrNot[1]
-                [U,D,V]=torch.svd(x)
-                DiagElemnt.append(D[0:NumCutoff].detach().tolist())
-                np.save(mark,DiagElemnt)            
+            SaveDynamicsEvolution(x)
             x=layer(x,edge_index)
             x =x*torch.sigmoid(x)
         #x = F.dropout(x, training=self.training)
@@ -309,7 +283,7 @@ class SplineNet(torch.nn.Module):
         #x = F.dropout(x, training=self.training)
         x = F.log_softmax(self.layers[-1](x,edge_index),dim=1)
         return x
-    
+
 class topk_pool_Net(torch.nn.Module):
     def __init__(self,datasetroot, width):
         super(topk_pool_Net, self).__init__()
@@ -348,7 +322,7 @@ class topk_pool_Net(torch.nn.Module):
             x = F.dropout(x, p=0.5, training=self.training)
         x = F.log_softmax(self.layers[-1](x),dim=1)
         return x
-    
+
 def ModelAndSave(dataset,modelName,train_dataset,params,num_epochs): 
     model_to_save='./checkpoint/{}-{}-param_{}_{}_{}_{}-ckpt.pth'.format(dataset,modelName,params[0],params[1],params[2],params[3])
     if resume=="True" and os.path.exists(model_to_save):
@@ -358,11 +332,10 @@ def ModelAndSave(dataset,modelName,train_dataset,params,num_epochs):
 
     else:
         width=ContractionLayerCoefficients(train_dataset.num_features,*params[1:3])
-        NetworkInfo=[width]
-        net =ChooseModel(modelName,train_dataset,NetworkInfo)
+        net =ChooseModel(modelName,train_dataset,width)
     return net, model_to_save
 
-    
+
 # Training
 
 def RetainNetworkSize(net,ConCoeff):
@@ -378,13 +351,13 @@ def RetainNetworkSize(net,ConCoeff):
             #WeightsDynamics.append(D[:NumCutoff].tolist())
             CutoffPoint=FindCutoffPoint(D,ConCoeff)
             NewNetworksize.append(CutoffPoint)
-            NewNetworkWeight.append(U[:,:CutoffPoint]@V[:CutoffPoint,:CutoffPoint])
+            #NewNetworkWeight.append(U[:,:CutoffPoint]@torch.diag(D[:CutoffPoint])@V[:CutoffPoint,:CutoffPoint])
             #NewNetworkWeight.append(U[:,:CutoffPoint]@torch.diag(D[:CutoffPoint])@V[:CutoffPoint,:CutoffPoint])
 
             """NewWeight= torch.mm(Weight,V[:,:CutoffPoint])
             net.conv2.weight = torch.nn.Parameter( NewWeight)"""
             #print("Original size is {},After SVD is {}".format(Weight.shape[1],CutoffPoint))
-    return NewNetworksize,NewNetworkWeight
+    return NewNetworksize
 
 def train(trainloader,net,optimizer,criterion):
     net.train()
@@ -408,7 +381,7 @@ def train(trainloader,net,optimizer,criterion):
         
     return train_loss
 
-       
+
 def test(trainloader,net,criterion):
     net.eval()
     accs= []
@@ -502,14 +475,14 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
                 #cudnn.benchmark = True
         logging('dataset:{}, Batch size: {}, Number of layers:{} ConCoeff: {}, LR:{}, MonteSize:{}'.format(dataset, params[0], params[1],params[2],params[3],Monte_iter))
         mark="{}{}Convergence/DiagElement-{}".format(savepath,dataset,FileName)
+        markweights="{}{}Convergence/WeightChanges-{}".format(savepath,dataset,FileName)
                      
 
-        PreTrainConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,trainloader,net,optimizer,criterion,NumCutoff,mark,False,model_to_save)
+        PreTrainConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,trainloader,net,optimizer,criterion,NumCutoff,mark,markweights,False,model_to_save)
         print('dataset: {}, model name:{}, the Pre-train error of {} epoches  is:  {}, test acc is {}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreAcc))
 
-        NewNetworksize,NewNetworkWeight=RetainNetworkSize(net,params[2])[0:2]
-        NetworkInfo=[NewNetworksize[0:-1],NewNetworkWeight]
-        OptimizedNet=ChooseModel(modelName,datasetroot,NetworkInfo)
+        NewNetworksize=RetainNetworkSize(net,params[2])
+        OptimizedNet=ChooseModel(modelName,datasetroot,NewNetworksize[0:-1])
         NewNetworksize.insert(0,datasetroot.num_features)
         NewNetworkSizeAdjust.append(NewNetworksize[0:-1])
         print(NewNetworkSizeAdjust)
@@ -524,7 +497,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         elif optimizerName =="Adam":
             optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4, amsgrad=False)
 
-        TrainConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,mark,True,model_to_save)
+        TrainConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,mark,markweights,True,model_to_save)
         np.save("{}/{}Convergence/TrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
         np.save("{}/{}Convergence/NewNetworkSizeAdjust-{}".format(savepath,dataset,FileName),NewNetworkSizeAdjust)
 
@@ -552,14 +525,14 @@ if __name__=="__main__":
                         help='cardinality weight (default: 1e-2)')
     parser.add_argument('--optimizer',default='SGD',type=str, help='optimizer to train')
 
-    parser.add_argument('--num_pre_epochs', type=int, default=30, metavar='P',
+    parser.add_argument('--num_pre_epochs', type=int, default=100, metavar='P',
                         help='number of epochs to pretrain (default: 3)')
     parser.add_argument('--num_epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--MonteSize', default=1, type=int, help=' Monte Carlos size')
     parser.add_argument('--gpus', default="0", type=str, help="gpu devices")
     parser.add_argument('--BatchSize', default=512, type=int, help='batch size')
-    parser.add_argument('--NumLayers', default=2, type=int, help='Number of layers')
+    parser.add_argument('--NumLayers', default=1, type=int, help='Number of layers')
     parser.add_argument('--PruningTimes', default=2, type=int, help='Pruning times')
     parser.add_argument('--savepath', type=str, default='Results/', help='Path to save results')
     parser.add_argument('--return_output', type=str, default=False, help='Whether output')
