@@ -1,0 +1,362 @@
+import networkx as nx
+from community import community_louvain
+import numpy as np
+import matplotlib.pyplot as plt
+from random import randint,random
+import networkx as nx
+import matplotlib.pyplot as plt
+import torch
+import pickle
+import scipy.sparse as sparse
+from collections import Counter
+from matplotlib.ticker import MaxNLocator
+from Results.NNSpectralAnalysis import WeightsToAdjaency,GraphPartition
+from minisom import MiniSom    
+
+
+def get_key (dict, value):
+        return [k for k, v in dict.items() if v == value]
+    
+    
+def weights_array_to_cluster_quality(weights_array, adj_mat, num_clusters,
+                                     eigen_solver, assign_labels, epsilon,
+                                     is_testing=False):
+    # t1 = time.time()
+    clustering_labels = cluster_net(num_clusters, adj_mat, eigen_solver, assign_labels)
+    # t2 = time.time()
+    ncut_val = compute_ncut(adj_mat, clustering_labels, epsilon, verbose=is_testing)
+
+    if is_testing:
+        ncut_val_previous_method = ncut(weights_array, num_clusters, clustering_labels, epsilon)
+        print('NCUT Current', ncut_val)
+        print('NCUT Previous', ncut_val_previous_method)
+        assert math.isclose(ncut_val, ncut_val_previous_method, abs_tol=1e-5)
+
+    return ncut_val, clustering_labels
+
+
+def cluster_net(n_clusters, adj_mat, eigen_solver, assign_labels):
+    cluster_alg = SpectralClustering(n_clusters=n_clusters,
+                                     eigen_solver=eigen_solver,
+                                     affinity='precomputed',
+                                     assign_labels=assign_labels)
+    clustering = cluster_alg.fit(adj_mat)
+    return clustering.labels_
+
+def delete_isolated_ccs(weight_array, adj_mat):
+    # find connected components that aren't represented on both the first and
+    # the last layer, and delete them from the graph
+
+    nc, labels = sparse.csgraph.connected_components(adj_mat, directed=False)
+
+    # if there's only one connected component, don't bother
+    if nc == 1:
+        return weight_array, adj_mat
+    
+    widths = weights_to_layer_widths(weight_array)
+
+    # find cc labels represented in the first layer
+    initial_ccs = set()
+    for i in range(widths[0]):
+        initial_ccs.add(labels[i])
+    # find cc labels represented in the final layer
+    final_ccs = set()
+    final_layer = len(widths) - 1
+    for i in range(widths[-1]):
+        neuron = mlp_tup_to_int((final_layer, i), widths)
+        final_ccs.add(labels[neuron])
+
+    # find cc labels that aren't in either of those two sets
+    isolated_ccs = set()
+    for c in range(nc):
+        if not (c in initial_ccs and c in final_ccs):
+            isolated_ccs.add(c)
+
+    # if there aren't any isolated ccs, don't bother deleting them!
+    if not isolated_ccs:
+        return weight_array, adj_mat
+
+    # go through weight_array
+    # for each array, go to the rows and cols
+    # figure out which things you have to delete, then delete them
+    new_weight_array = []
+    for (t, mat) in enumerate(weight_array):
+        # print("weight array number:", t)
+        n_rows, n_cols = mat.shape
+        # print("original n_rows, n_cols:", (n_rows, n_cols))
+        rows_layer = t
+        cols_layer = t + 1
+
+        # delete rows and cols corresponding to neurons in isolated clusters
+        rows_to_delete = []
+        for i in range(n_rows):
+            neuron = mlp_tup_to_int((rows_layer, i), widths)
+            if labels[neuron] in isolated_ccs:
+                rows_to_delete.append(i)
+
+        cols_to_delete = []
+        for j in range(n_cols):
+            neuron = mlp_tup_to_int((cols_layer, j), widths)
+            if labels[neuron] in isolated_ccs:
+                cols_to_delete.append(j)
+
+        # print("rows to delete:", rows_to_delete)
+        # print("columns to delete:", cols_to_delete)
+
+        rows_deleted = np.delete(mat, rows_to_delete, 0)
+        new_mat = np.delete(rows_deleted, cols_to_delete, 1)
+        # print("new mat shape:", new_mat.shape)
+        new_weight_array.append(new_mat)
+
+    # then return the adj_mat
+    new_adj_mat = weights_to_graph(new_weight_array)
+    return new_weight_array, new_adj_mat
+
+def weights_to_graph(weights_array):
+    # take an array of weight matrices, and return the adjacency matrix of the
+    # neural network it defines.
+    # if the weight matrices are A, B, C, and D, the adjacency matrix should be
+    # [[0   A^T 0   0   0  ]
+    #  [A   0   B^T 0   0  ]
+    #  [0   B   0   C^T 0  ]
+    #  [0   0   C   0   D^T]
+    #  [0   0   0   D   0  ]]
+    # however, the weight matrices we get are A^T etc.
+
+    block_mat = []
+
+    # for everything in the weights array, add a row to block_mat of the form
+    # [None, None, ..., sparsify(np.abs(mat)), None, ..., None]
+    for (i, mat) in enumerate(weights_array):
+        mat=np.maximum(mat,0)         
+        sp_mat = sparse.coo_matrix(np.abs(mat))
+        if i == 0:
+            # add a zero matrix of the right size to the start of the first row
+            # so that our final matrix is of the right size
+            n = mat.shape[0]
+            first_zeroes = sparse.coo_matrix((n, n))
+            block_row = [first_zeroes] + [None]*len(weights_array)
+        else:
+            block_row = [None]*(len(weights_array)+1)
+        block_row[i+1] = sp_mat
+        block_mat.append(block_row)
+
+    # add a final row to block_mat that's just a bunch of [None]s followed by a
+    # zero matrix of the right size
+    m = weights_array[-1].shape[1]
+    final_zeroes = sparse.coo_matrix((m, m))
+    nones_row = [None]*len(weights_array)
+    nones_row.append(final_zeroes)
+    block_mat.append(nones_row)
+
+    # turn block_mat into a sparse matrix
+    up_tri = sparse.bmat(block_mat, 'csr')
+
+    # we now have a matrix that looks like
+    # [[0   A^T 0   0  ]
+    #  [0   0   B^T 0  ]
+    #  [0   0   0   C^T]
+    
+    #  [0   0   0   0  ]]
+    # add this to its transpose to get what we want
+    adj_mat = up_tri + up_tri.transpose()
+    return adj_mat
+
+def ToBlockMatrix(weights):
+    M,N=weights.shape
+    A11=np.zeros((M,M))
+    A12=weights
+    A21=np.transpose(weights)
+    A22=np.zeros((N,N))
+    BlockMatrix = np.block([[A11, A12], [A21, A22]])
+    return BlockMatrix
+
+def PositiveEdgesInfo(Weight):   
+    PositiveEdges=[]
+    for i in range(Weight.shape[0]):
+        for j in range(Weight.shape[1]): 
+            if Weight[i,j]>0:
+                PositiveEdges.append((i,j))
+    return PositiveEdges
+
+def common_groups(city1, city2):
+    return indices.get(city1, set()) & indices.get(city2, set())   
+
+def CorrectWeights(Weight,Parition,win):
+    max_iter=100
+    G=WeightsToAdjaency(Weight)
+    PartitionClassi=set([*Parition.values()])
+    oneClassNode=get_key(Parition,PartitionClassi.pop())
+    H=G.subgraph(oneClassNode)
+    nrom_laplacian_matrics = nx.normalized_laplacian_matrix(H)
+    d, v=power_iteration(nrom_laplacian_matrics)
+    print(v)
+    som = MiniSom(3, 3,len(Weights[0]), sigma=0.3, learning_rate=0.5) # initialization of 6x6 SOM
+    for i in range(Weight.shape[0]):
+        for j in range(Weight.shape[1]):
+            if (Weight[i,j]<0) and Parition[i]== Parition[j+Weight.shape[0]]:
+   
+                for i in range(max_iter):
+                    newWeigts[i]=som.correctweights(Weights[0], i, max_iter)
+                semipart=int((M-1)/2)
+                windows=Weight[0][i-semipart:i+semipart+1]
+                Weight[0][i-semipart:i+semipart+1]+=np.einsum("i,ij->i",windows,g)
+
+    return Weight
+
+
+def eigenvalue(A, v):
+    Av = A.dot(v)
+    return v.dot(Av)
+
+def power_iteration(A):
+    n, d = A.shape
+    v = np.ones(d) / np.sqrt(d)
+    ev = eigenvalue(A, v)
+
+    while True:
+        Av = A.dot(v)
+        v_new = Av / np.linalg.norm(Av)
+
+        ev_new = eigenvalue(A, v_new)
+        if np.abs(ev - ev_new) < 0.01:
+            break
+
+        v = v_new
+        ev = ev_new
+
+    return ev_new, v_new
+
+def UpdateWeights(net,Parition_array):
+    #state_dict=torch.load("Net_state_dict")
+    state_dict = net.state_dict()
+    for i,name in enumerate(state_dict):
+        Weight=state_dict[weight]
+        Weight=CorrectWeights(Weight,Parition_array[i])
+        state_dict[name]=Weight
+        net.load_state_dict(state_dict) 
+    return net             
+
+def Adjaencypartition(BlockMatrix):
+    BlockMatrix=np.maximum(BlockMatrix,0)          
+    sp_mat = sparse.coo_matrix(BlockMatrix)
+    G=nx.from_scipy_sparse_matrix(sp_mat)
+    G.remove_nodes_from(list(nx.isolates(G)))
+    partition=community_louvain.best_partition(G)
+    """pos=community_layout(G,partition)
+    nx.draw(G, pos, node_color=list(partition.values()))
+    plt.show()"""
+    #Degree_distribution(G)
+    return partition
+
+def Degree_distribution(G):
+    degree_sequence = sorted([d for n, d in G.degree()], reverse=True) 
+    degreeCount=Counter(degree_sequence)
+    deg,cnt=zip(*degreeCount.items())
+    fig =plt.subplot()
+    plt.bar(deg,cnt,width=0.08,color='b')
+    plt.xlabel("Degree")
+    plt.ylabel("Count")
+    plt.show()
+
+def community_layout(g, partition):
+    """
+    Compute the layout for a modular graph.
+
+
+    Arguments:
+    ----------
+    g -- networkx.Graph or networkx.DiGraph instance
+        graph to plot
+
+    partition -- dict mapping int node -> int community
+        graph partitions
+
+
+    Returns:
+    --------
+    pos -- dict mapping int node -> (float x, float y)
+        node positions
+
+    """
+
+    pos_communities = _position_communities(g, partition, scale=3.)
+
+    pos_nodes = _position_nodes(g, partition, scale=1.)
+
+    # combine positions
+    pos = dict()
+    for node in g.nodes():
+        pos[node] = pos_communities[node] + pos_nodes[node]
+
+    return pos
+
+def _position_communities(g, partition, **kwargs):
+
+    # create a weighted graph, in which each node corresponds to a community,
+    # and each edge weight to the number of edges between communities
+    between_community_edges = _find_between_community_edges(g, partition)
+
+    communities = set(partition.values())
+    hypergraph = nx.DiGraph()
+    hypergraph.add_nodes_from(communities)
+    for (ci, cj), edges in between_community_edges.items():
+        hypergraph.add_edge(ci, cj, weight=len(edges))
+
+    # find layout for communities
+    pos_communities = nx.spring_layout(hypergraph, **kwargs)
+
+    # set node positions to position of community
+    pos = dict()
+    for node, community in partition.items():
+        pos[node] = pos_communities[community]
+
+    return pos
+
+def _find_between_community_edges(g, partition):
+
+    edges = dict()
+
+    for (ni, nj) in g.edges():
+        ci = partition[ni]
+        cj = partition[nj]
+
+        if ci != cj:
+            try:
+                edges[(ci, cj)] += [(ni, nj)]
+            except KeyError:
+                edges[(ci, cj)] = [(ni, nj)]
+
+    return edges
+
+def _position_nodes(g, partition, **kwargs):
+    """
+    Positions nodes within communities.
+    """
+
+    communities = dict()
+    for node, community in partition.items():
+        try:
+            communities[community] += [node]
+        except KeyError:
+            communities[community] = [node]
+
+    pos = dict()
+    for ci, nodes in communities.items():
+        subgraph = g.subgraph(nodes)
+        pos_subgraph = nx.spring_layout(subgraph, **kwargs)
+        pos.update(pos_subgraph)
+
+    return pos
+
+def test():
+    # to install networkx 2.0 compatible version of python-louvain use:
+    # pip install -U git+https://github.com/taynaud/python-louvain.git@networkx2
+    from community import community_louvain
+
+    g = nx.karate_club_graph()
+    partition = community_louvain.best_partition(g)
+    pos = community_layout(g, partition)
+
+    nx.draw(g, pos, node_color=list(partition.values())); plt.show()
+    return

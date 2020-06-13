@@ -17,11 +17,14 @@ from torch_geometric.nn import GCNConv, ChebConv,global_mean_pool,SplineConv,Gra
 #from pyts.image import RecurrencePlot
 from torch_geometric.datasets import MNISTSuperpixels,Planetoid,TUDataset,PPI,Amazon,Reddit,CoraFull
 import torch_geometric.transforms as T
+from SpectralAnalysis import ToBlockMatrix,Adjaencypartition,CorrectWeights
+from Results.NNSpectralAnalysis import SOMVisualization,WeightsToAdjaency,GraphPartition
 from torch_geometric.nn import global_mean_pool as gap, global_max_pool as gmp
 import numpy as np
 import argparse
 import os,sys
 global resume
+
 
 def ChooseModel(model_name,datasetroot,width):
     if model_name=="GCN":  
@@ -39,21 +42,53 @@ def ChooseModel(model_name,datasetroot,width):
         
     return net
 
-def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,mark,markweights,SaveModule,model_to_save):
+def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,mark,markweights,SaveModule,model_to_save,Flag):
     best_acc =1  # best test loss
     TrainConvergence=[]
     TestConvergence=[]
+    alpha=0.6
     for epoch in range(start_epoch,num_epochs):
         if epoch%40==0 or epoch==num_epochs-1:
             global SVDOrNot
             SVDOrNot=[NumCutoff,"{}-{}".format(mark,epoch)]
-            TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
             """NewNetworkWeight=RetainNetworkSize(OptimizedNet,params[2])[1]
             torch.save(NewNetworkWeight[0:-1],"{}-{}.pt".format(markweights,epoch))"""
+        elif epoch==num_epochs*alpha and Flag==True:
+            # compute the partition
+            #Parition_array=PartitionResults(OptimizedNet)
+            state_dict = OptimizedNet.state_dict()
+            for (i,layer_name) in enumerate(state_dict):
+                if ("layers" in layer_name) and ("weight" in layer_name):
+                    classiResultsFiles="Results/PartitionResults/{}-oneClassNodeEpoch_{}Layer_{}.npy".format(modelName,str(epoch),str(i))
+                    if os.path.exists(classiResultsFiles):
+                         pos,partition=np.load(classiResultsFiles,allow_pickle=True)
+                    else:
+                        Weight=state_dict[layer_name]
+                        if Weight.dim()==3:
+                            Weight=np.squeeze(Weight)
+                        G=WeightsToAdjaency(Weight)
+                        pos,partition=GraphPartition(G)
+                        np.save(classiResultsFiles,[pos,partition])
 
+                    
+        elif epoch>num_epochs*alpha and epoch%10==0 and Flag==True:
+            #torch.save(OptimizedNet.state_dict(),"Net_state_dict")
+            state_dict = OptimizedNet.state_dict()
+            i=0
+            for layer_name in state_dict:
+                if ("layers" in layer_name) and ("weight" in layer_name):
+                    Weight=state_dict[layer_name]
+                    if Weight.dim()==3:
+                        Weight=np.squeeze(Weight)
+                        
+                    Weight=CorrectWeights(Weight,partition,(3,3))
+                    state_dict[layer_name]=Weight
+                    i+=1
+                OptimizedNet.load_state_dict(state_dict) 
+                
         else:
             SVDOrNot=[]
-            TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
+        TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
         Acc=test(trainloader,OptimizedNet,criterionNew)          
         print('\n Epoch: {},  tain loss: {:.4f}, train acc: {:.4f}, val acc: {:.4f}, test acc: {:.4f} \n'.format(epoch,TrainLoss[0],Acc[0],Acc[1],Acc[2]))
         TrainConvergence.append(statistics.mean(TrainLoss))
@@ -351,12 +386,13 @@ def RetainNetworkSize(net,ConCoeff):
             CutoffPoint=FindCutoffPoint(D,ConCoeff)
             NewNetworksize.append(CutoffPoint)
             #NewNetworkWeight.append(U[:,:CutoffPoint]@torch.diag(D[:CutoffPoint])@V[:CutoffPoint,:CutoffPoint])
-            #NewNetworkWeight.append(U[:,:CutoffPoint]@torch.diag(D[:CutoffPoint])@V[:CutoffPoint,:CutoffPoint])
 
             """NewWeight= torch.mm(Weight,V[:,:CutoffPoint])
             net.conv2.weight = torch.nn.Parameter( NewWeight)"""
             #print("Original size is {},After SVD is {}".format(Weight.shape[1],CutoffPoint))
     return NewNetworksize
+
+
 
 def train(trainloader,net,optimizer,criterion):
     net.train()
@@ -477,7 +513,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         markweights="{}{}Convergence/WeightChanges-{}".format(savepath,dataset,FileName)
                      
 
-        PreTrainConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,trainloader,net,optimizer,criterion,NumCutoff,mark,markweights,False,model_to_save)
+        PreTrainConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,trainloader,net,optimizer,criterion,NumCutoff,mark,markweights,False,model_to_save,False)
         print('dataset: {}, model name:{}, the Pre-train error of {} epoches  is:  {}, test acc is {}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreAcc))
 
         NewNetworksize=RetainNetworkSize(net,params[2])
@@ -496,7 +532,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         elif optimizerName =="Adam":
             optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4, amsgrad=False)
 
-        TrainConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,mark,markweights,True,model_to_save)
+        TrainConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,mark,markweights,True,model_to_save,True)
         np.save("{}/{}Convergence/TrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
         np.save("{}/{}Convergence/NewNetworkSizeAdjust-{}".format(savepath,dataset,FileName),NewNetworkSizeAdjust)
 
@@ -515,7 +551,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
 if __name__=="__main__":   
     parser = argparse.ArgumentParser(description='PyTorch Training')
     parser.add_argument('--dataset',default='Cora',type=str, help='dataset to train')
-    parser.add_argument('--modelName',default='GCN',type=str, help='model to use')
+    parser.add_argument('--modelName',default='ChebConvNet',type=str, help='model to use')
     parser.add_argument('--LR', default=0.5, type=float, help='learning rate') 
     parser.add_argument('--ConCoeff', default=0.99, type=float, help='contraction coefficients')
     parser.add_argument('--CutoffCoeff', default=0.1, type=float, help='contraction coefficients')
@@ -524,7 +560,7 @@ if __name__=="__main__":
                         help='cardinality weight (default: 1e-2)')
     parser.add_argument('--optimizer',default='SGD',type=str, help='optimizer to train')
 
-    parser.add_argument('--num_pre_epochs', type=int, default=100, metavar='P',
+    parser.add_argument('--num_pre_epochs', type=int, default=30, metavar='P',
                         help='number of epochs to pretrain (default: 3)')
     parser.add_argument('--num_epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
@@ -549,6 +585,8 @@ if __name__=="__main__":
     save_recurrence_plots=args.save_recurrence_plots
     #params=[args.BatchSize,args.NumLayers,args.args.ConCoeff,args.CutoffCoeff]
     params=[args.BatchSize,args.NumLayers,args.ConCoeff,args.LR]
+    global modelName
+    modelName=args.modelName
     
     TrainingNet(args.dataset,args.modelName,params,args.num_pre_epochs,args.num_epochs,args.NumCutoff,args.optimizer,args.MonteSize,args.savepath)
 
