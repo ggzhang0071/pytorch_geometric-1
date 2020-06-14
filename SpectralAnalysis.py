@@ -184,24 +184,32 @@ def common_groups(city1, city2):
 
 def CorrectWeights(Weight,Parition,win):
     max_iter=100
-    G=WeightsToAdjaency(Weight)
+    M=3
+    N=3
+    """G=WeightsToAdjaency(Weight)
     PartitionClassi=set([*Parition.values()])
     oneClassNode=get_key(Parition,PartitionClassi.pop())
     H=G.subgraph(oneClassNode)
     nrom_laplacian_matrics = nx.normalized_laplacian_matrix(H)
     d, v=power_iteration(nrom_laplacian_matrics)
-    print(v)
-    som = MiniSom(3, 3,len(Weights[0]), sigma=0.3, learning_rate=0.5) # initialization of 6x6 SOM
+    EigenVectorPair=[]
+    for i in range(int(v.shape[0]/2)):
+        EigenVectorPair.append([v.argmax(),v.argmin()])
+        v=np.delete(v,v.argmax())
+        v=np.delete(v,v.argmin())
+        print(v.shape)"""
+    Weight=Weight.cpu().detach().numpy()
+    som = MiniSom(M, N,len(Weight[0]), sigma=0.3, learning_rate=0.5) # initialization of 6x6 SOM
+    semipart=int((N-1)/2)
     for i in range(Weight.shape[0]):
         for j in range(Weight.shape[1]):
             if (Weight[i,j]<0) and Parition[i]== Parition[j+Weight.shape[0]]:
-   
-                for i in range(max_iter):
-                    newWeigts[i]=som.correctweights(Weights[0], i, max_iter)
-                semipart=int((M-1)/2)
-                windows=Weight[0][i-semipart:i+semipart+1]
-                Weight[0][i-semipart:i+semipart+1]+=np.einsum("i,ij->i",windows,g)
-
+                if i>semipart:
+                    ChooseWeights=Weight[i-semipart:i+semipart+1]
+                else:
+                    ChooseWeights=Weight[:N]  
+                for kk in range(max_iter):
+                    Weight[i]=som.correctweights(ChooseWeights,(semipart,j%N),kk, max_iter)
     return Weight
 
 
@@ -213,7 +221,7 @@ def power_iteration(A):
     n, d = A.shape
     v = np.ones(d) / np.sqrt(d)
     ev = eigenvalue(A, v)
-
+    np.seterr(divide='ignore',invalid='ignore')
     while True:
         Av = A.dot(v)
         v_new = Av / np.linalg.norm(Av)

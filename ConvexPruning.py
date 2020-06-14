@@ -57,11 +57,14 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
             # compute the partition
             #Parition_array=PartitionResults(OptimizedNet)
             state_dict = OptimizedNet.state_dict()
+            partition_array=[]
             for (i,layer_name) in enumerate(state_dict):
                 if ("layers" in layer_name) and ("weight" in layer_name):
                     classiResultsFiles="Results/PartitionResults/{}-oneClassNodeEpoch_{}Layer_{}.npy".format(modelName,str(epoch),str(i))
                     if os.path.exists(classiResultsFiles):
-                         pos,partition=np.load(classiResultsFiles,allow_pickle=True)
+                        pos,partition=np.load(classiResultsFiles,allow_pickle=True)
+                        partition_array.append(partition)
+                            
                     else:
                         Weight=state_dict[layer_name]
                         if Weight.dim()==3:
@@ -74,16 +77,13 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
         elif epoch>num_epochs*alpha and epoch%10==0 and Flag==True:
             #torch.save(OptimizedNet.state_dict(),"Net_state_dict")
             state_dict = OptimizedNet.state_dict()
-            i=0
-            for layer_name in state_dict:
+            for (i,layer_name) in enumerate(state_dict):
                 if ("layers" in layer_name) and ("weight" in layer_name):
                     Weight=state_dict[layer_name]
                     if Weight.dim()==3:
-                        Weight=np.squeeze(Weight)
-                        
-                    Weight=CorrectWeights(Weight,partition,(3,3))
+                        Weight=np.squeeze(Weight)  
+                    Weight=CorrectWeights(Weight,partition_array[i],(3,3))
                     state_dict[layer_name]=Weight
-                    i+=1
                 OptimizedNet.load_state_dict(state_dict) 
                 
         else:
@@ -551,7 +551,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
 if __name__=="__main__":   
     parser = argparse.ArgumentParser(description='PyTorch Training')
     parser.add_argument('--dataset',default='Cora',type=str, help='dataset to train')
-    parser.add_argument('--modelName',default='ChebConvNet',type=str, help='model to use')
+    parser.add_argument('--modelName',default='GCN',type=str, help='model to use')
     parser.add_argument('--LR', default=0.5, type=float, help='learning rate') 
     parser.add_argument('--ConCoeff', default=0.99, type=float, help='contraction coefficients')
     parser.add_argument('--CutoffCoeff', default=0.1, type=float, help='contraction coefficients')
