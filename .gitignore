@@ -8,9 +8,10 @@ alpha/
 *.egg-info/
 .coverage
 .coverage.*
+*.npy
 
 !torch_geometric/data/
-!torch_geometric/Results
+!torch_geometric/Results:
 !test/data/
 !docs/build/
 !docs/build/html/_modules/torch_geometric/data/
