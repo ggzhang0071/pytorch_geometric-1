@@ -10,7 +10,7 @@ import pickle
 import scipy.sparse as sparse
 from collections import Counter
 from matplotlib.ticker import MaxNLocator
-from Results.NNSpectralAnalysis import WeightsToAdjaency,GraphPartition
+from NNSpectralAnalysis import WeightsToAdjaency,GraphPartition
 from minisom import MiniSom    
 
 
@@ -182,32 +182,38 @@ def PositiveEdgesInfo(Weight):
 def common_groups(city1, city2):
     return indices.get(city1, set()) & indices.get(city2, set())   
 
-def CorrectWeights(Weight,Parition,win):
+def CorrectWeights(Weight,G,Parition,win):
     max_iter=100
     M=3
     N=3
-    """G=WeightsToAdjaency(Weight)
     PartitionClassi=set([*Parition.values()])
-    oneClassNode=get_key(Parition,PartitionClassi.pop())
-    H=G.subgraph(oneClassNode)
-    nrom_laplacian_matrics = nx.normalized_laplacian_matrix(H)
-    d, v=power_iteration(nrom_laplacian_matrics)
-    EigenVectorPair=[]
-    for i in range(int(v.shape[0]/2)):
-        EigenVectorPair.append([v.argmax(),v.argmin()])
-        v=np.delete(v,v.argmax())
-        v=np.delete(v,v.argmin())
-        print(v.shape)"""
-    Weight=Weight.cpu().detach().numpy()
+    VectorPair=50
+    CorrectedEdge={}
+    for OneClassi in PartitionClassi:
+        oneClassNodes=get_key(Parition,OneClassi)
+        H=nx.Graph(G.subgraph(oneClassNodes))
+        nrom_laplacian_matrics = nx.normalized_laplacian_matrix(H,weight='weight')
+        d,v=power_iteration(nrom_laplacian_matrics)
+        EigenVectorPair=[]
+        for iter in range(VectorPair):
+            EigenVectorPair.append((v.argmax(),v.argmin()))
+            v=np.delete(v,v.argmax())
+            v=np.delete(v,v.argmin())
+        CorrectedEdge[OneClassi]=EigenVectorPair
+        
+      
     som = MiniSom(M, N,len(Weight[0]), sigma=0.3, learning_rate=0.5) # initialization of 6x6 SOM
-    semipart=int((N-1)/2)
+    semipart=int((M-1)/2)
     for i in range(Weight.shape[0]):
         for j in range(Weight.shape[1]):
-            if (Weight[i,j]<0) and Parition[i]== Parition[j+Weight.shape[0]]:
-                if i>semipart:
+            if (Weight[i,j]<0) and (j+Weight.shape[0] in Parition) and (i in Parition) and (Parition[i]== Parition[j+Weight.shape[0]]) and ([i, j+Weight.shape[0]] in CorrectedEdge[Parition[i]]):
+                if i<semipart:
+                    ChooseWeights=Weight[:M]  
+                elif i>=semipart and i<(M-semipart):
                     ChooseWeights=Weight[i-semipart:i+semipart+1]
                 else:
-                    ChooseWeights=Weight[:N]  
+                    ChooseWeights=Weight[-M:]
+               
                 for kk in range(max_iter):
                     Weight[i]=som.correctweights(ChooseWeights,(semipart,j%N),kk, max_iter)
     return Weight
