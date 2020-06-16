@@ -12,7 +12,7 @@ from collections import Counter
 from matplotlib.ticker import MaxNLocator
 from NNSpectralAnalysis import WeightsToAdjaency,GraphPartition
 from minisom import MiniSom    
-
+from sklearn.cluster import DBSCAN
 
 def get_key (dict, value):
         return [k for k, v in dict.items() if v == value]
@@ -171,31 +171,37 @@ def ToBlockMatrix(weights):
     BlockMatrix = np.block([[A11, A12], [A21, A22]])
     return BlockMatrix
 
-def PositiveEdgesInfo(Weight):   
-    PositiveEdges=[]
-    for i in range(Weight.shape[0]):
-        for j in range(Weight.shape[1]): 
-            if Weight[i,j]>0:
-                PositiveEdges.append((i,j))
-    return PositiveEdges
 
-def common_groups(city1, city2):
-    return indices.get(city1, set()) & indices.get(city2, set())   
+def Fiedler_vector_cluter(G):
+    laplacian = nx.laplacian_matrix(G)
+    w, v = np.linalg.eig(laplacian.todense())
+    algebraic_connectivity = w[1] # Neat measure of how tight the graph is
+    fiedler_vector = v[:,1].T
+    db = DBSCAN(eps=0.15, min_samples=1).fit(fiedler_vector.T)
+    cluter={}
+    for k in set(db.labels_):
+        class_members = [index[0] for index in np.argwhere(db.labels_ == k)]
+        oneClassNodes=[index for index in class_members]
+        cluter[k]=oneClassNodes
+    return cluter
+
 
 def CorrectWeights(Weight,G,Parition,win):
     max_iter=100
-    M=3
-    N=3
-    PartitionClassi=set([*Parition.values()])
-    VectorPair=50
+    M=win[0]
+    N=win[1]
+    print(win)
+    PartitionClassi=set([*Parition.keys()])
+    VectorPairs=1
     CorrectedEdge={}
     for OneClassi in PartitionClassi:
         oneClassNodes=get_key(Parition,OneClassi)
         H=nx.Graph(G.subgraph(oneClassNodes))
         nrom_laplacian_matrics = nx.normalized_laplacian_matrix(H,weight='weight')
-        d,v=power_iteration(nrom_laplacian_matrics)
+        v=nx.fiedler_vector(G, weight='weight', normalized=True)
+        #d,v=power_iteration(nrom_laplacian_matrics)
         EigenVectorPair=[]
-        for iter in range(VectorPair):
+        for iter in range(VectorPairs):
             EigenVectorPair.append((v.argmax(),v.argmin()))
             v=np.delete(v,v.argmax())
             v=np.delete(v,v.argmin())
@@ -204,18 +210,17 @@ def CorrectWeights(Weight,G,Parition,win):
       
     som = MiniSom(M, N,len(Weight[0]), sigma=0.3, learning_rate=0.5) # initialization of 6x6 SOM
     semipart=int((M-1)/2)
-    for i in range(Weight.shape[0]):
-        for j in range(Weight.shape[1]):
-            if (Weight[i,j]<0) and (j+Weight.shape[0] in Parition) and (i in Parition) and (Parition[i]== Parition[j+Weight.shape[0]]) and ([i, j+Weight.shape[0]] in CorrectedEdge[Parition[i]]):
-                if i<semipart:
-                    ChooseWeights=Weight[:M]  
-                elif i>=semipart and i<(M-semipart):
-                    ChooseWeights=Weight[i-semipart:i+semipart+1]
-                else:
-                    ChooseWeights=Weight[-M:]
-               
-                for kk in range(max_iter):
-                    Weight[i]=som.correctweights(ChooseWeights,(semipart,j%N),kk, max_iter)
+    for OneClassi in PartitionClassi:
+        for onePair in range(VectorPairs):
+            locx,locy=CorrectedEdge[Parition[OneClassi]][onePair]
+            if locx<semipart:
+                ChooseWeights=Weight[:M]  
+            elif locx>=semipart and locx<(M-semipart):
+                ChooseWeights=Weight[locx-semipart:locx+semipart+1]
+            else:
+                ChooseWeights=Weight[-M:]
+            for iter1 in range(max_iter):
+                Weight[locx]=som.correctweights(ChooseWeights,(semipart,locy%N),iter1, max_iter)
     return Weight
 
 

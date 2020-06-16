@@ -69,10 +69,9 @@ def WeightsToAdjaency(Weights):
     G.add_nodes_from(range(M+M))
     for i in range(M):
         for j in range(N):
-            if Weights[i,j]>0:
-                G.add_weighted_edges_from([(i,j+M,Weights[i,j])])
-    """print("Diconnected points is {}".format(list(nx.isolates(G))))
-    G.remove_nodes_from(list(nx.isolates(G)))"""
+            G.add_weighted_edges_from([(i,j+M,Weights[i,j])])
+    print("Diconnected points is {}".format(list(nx.isolates(G))))
+    G.remove_nodes_from(list(nx.isolates(G)))
     return G
 
 

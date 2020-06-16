@@ -17,7 +17,7 @@ from torch_geometric.nn import GCNConv, ChebConv,global_mean_pool,SplineConv,Gra
 #from pyts.image import RecurrencePlot
 from torch_geometric.datasets import MNISTSuperpixels,Planetoid,TUDataset,PPI,Amazon,Reddit,CoraFull
 import torch_geometric.transforms as T
-from SpectralAnalysis import ToBlockMatrix,Adjaencypartition,CorrectWeights
+from SpectralAnalysis import ToBlockMatrix,Adjaencypartition,CorrectWeights,Fiedler_vector_cluter
 from NNSpectralAnalysis import WeightsToAdjaency,GraphPartition
 from torch_geometric.nn import global_mean_pool as gap, global_max_pool as gmp
 import numpy as np
@@ -43,7 +43,7 @@ def ChooseModel(model_name,datasetroot,width):
         
     return net
 
-def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,mark,markweights,SaveModule,model_to_save,Flag):
+def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,WindowSize,mark,markweights,SaveModule,model_to_save,Flag):
     best_acc =1  # best test loss
     TrainConvergence=[]
     TestConvergence=[]
@@ -64,25 +64,25 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
                 if ("layers" in layer_name) and ("weight" in layer_name):
                     classiResultsFiles="Results/PartitionResults/{}-oneClassNodeEpoch_{}Layer_{}.npy".format(modelName,str(epoch),str(i))
                     GraphResultsFiles="Results/PartitionResults/{}-GraphEpoch_{}Layer_{}.npy".format(modelName,str(epoch),str(i))
-
-                    if os.path.exists(classiResultsFiles):
+                    UseOld=False
+                    if os.path.exists(classiResultsFiles) and UseOld==True:
                         pos,partition=np.load(classiResultsFiles,allow_pickle=True)
                         partition_array.append(partition)
-                    if os.path.exists(GraphResultsFiles):
+                    if os.path.exists(GraphResultsFiles) and UseOld==True:
                         fr=open(GraphResultsFiles,'rb')
                         G=pickle.load(fr)
                         Graph_array.append(G)
-                            
                     else:
                         Weight=state_dict[layer_name]
                         if Weight.dim()==3:
                             Weight=np.squeeze(Weight)
                         Weight=Weight.cpu().detach().numpy()
                         G=WeightsToAdjaency(Weight)
-                        pos,partition=GraphPartition(G)
+                        cluter=Fiedler_vector_cluter(G)
+                        #pos,partition=GraphPartition(G)
                         Graph_array.append(G)
-                        partition_array.append(partition)
-                        np.save(classiResultsFiles,[pos,partition])
+                        partition_array.append(cluter)
+                        np.save(classiResultsFiles,cluter)
                         fw=open(GraphResultsFiles,'wb')
                         pickle.dump(G,fw)
 
@@ -99,7 +99,7 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
                         Weight=np.squeeze(Weight)  
                         dimSequeeze=True
                     Weight=Weight.cpu().detach().numpy()
-                    Weight=CorrectWeights(Weight,Graph_array[i],partition_array[i],(3,3))
+                    Weight=CorrectWeights(Weight,Graph_array[i],partition_array[i],[int(WindowSize)]*2)
                     if dimSequeeze==True:
                         Weight=np.expand_dims(Weight, axis=0)
                     Weight=torch.from_numpy(Weight).to('cuda')       
@@ -161,9 +161,9 @@ def ResumeModel(model_to_save):
     start_epoch = checkpoint['epoch']
     return net,TrainConvergence,Acc,start_epoch
 
-def FindCutoffPoint(DiagValues,coefficient):
+def FindCutoffPoint(DiagValues,ConCoeff):
     for i in range(DiagValues.shape[0]-1):
-        if DiagValues[i]>DiagValues[i+1]*coefficient:
+        if DiagValues[i]>DiagValues[i+1]*ConCoeff:
             CutoffPoint=i+1
 
     try:
@@ -451,9 +451,7 @@ def test(trainloader,net,criterion):
                     acc=pred.eq(data.y[mask].to(pred.device)).sum().item()/len(data.y[mask])
                     accs.append(acc)
 
-
             #acc = torch.cat(pred.eq(data.y.to(pred.device)).sum().item()/len(data.y) for data in data_list])
- 
 
     #print('\n Test set: Average loss: {:.4f} \n'.format(test_loss[-1]))
     return accs
@@ -462,6 +460,7 @@ def test(trainloader,net,criterion):
 
 def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,optimizerName,MonteSize,savepath):
     Batch_size=int(params[0]) 
+    WindowSize=params[4]
     root='/git/data/GraphData/'+dataset
     TestAccs=[]
     for Monte_iter in range(MonteSize):
@@ -533,8 +532,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         mark="{}{}Convergence/DiagElement-{}".format(savepath,dataset,FileName)
         markweights="{}{}Convergence/WeightChanges-{}".format(savepath,dataset,FileName)
                      
-
-        PreTrainConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,trainloader,net,optimizer,criterion,NumCutoff,mark,markweights,False,model_to_save,False)
+        PreTrainConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,trainloader,net,optimizer,criterion,NumCutoff,WindowSize,mark,markweights,False,model_to_save,False)
         print('dataset: {}, model name:{}, the Pre-train error of {} epoches  is:  {}, test acc is {}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreAcc))
 
         NewNetworksize=RetainNetworkSize(net,params[2])
@@ -553,11 +551,9 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         elif optimizerName =="Adam":
             optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4, amsgrad=False)
 
-        TrainConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,mark,markweights,True,model_to_save,True)
+        TrainConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,WindowSize,mark,markweights,True,model_to_save,True)
         np.save("{}/{}Convergence/TrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
         np.save("{}/{}Convergence/NewNetworkSizeAdjust-{}".format(savepath,dataset,FileName),NewNetworkSizeAdjust)
-
-
         
         #np.save(savepath+'TestConvergence-'+FileName,TestConvergence)
         #torch.cuda.empty_cache()
@@ -575,8 +571,8 @@ if __name__=="__main__":
     parser.add_argument('--modelName',default='GCN',type=str, help='model to use')
     parser.add_argument('--LR', default=0.5, type=float, help='learning rate') 
     parser.add_argument('--ConCoeff', default=0.99, type=float, help='contraction coefficients')
-    parser.add_argument('--CutoffCoeff', default=0.1, type=float, help='contraction coefficients')
     parser.add_argument('--NumCutoff', default=5, type=float, help='contraction coefficients')
+    parser.add_argument('--WindowSize', default=3, type=float, help='Window size for network correction')
     parser.add_argument('--rho', type=float, default=1e-2, metavar='R',
                         help='cardinality weight (default: 1e-2)')
     parser.add_argument('--optimizer',default='SGD',type=str, help='optimizer to train')
@@ -605,7 +601,7 @@ if __name__=="__main__":
     resume=args.resume
     save_recurrence_plots=args.save_recurrence_plots
     #params=[args.BatchSize,args.NumLayers,args.args.ConCoeff,args.CutoffCoeff]
-    params=[args.BatchSize,args.NumLayers,args.ConCoeff,args.LR]
+    params=[args.BatchSize,args.NumLayers,args.ConCoeff,args.LR,args.WindowSize]
     global modelName
     modelName=args.modelName
     
