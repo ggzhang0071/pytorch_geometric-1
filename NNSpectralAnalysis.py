@@ -21,11 +21,11 @@ import scipy.sparse as sparse
 
 
 # %%
-
+"""
 dataset="Cora"
 file_constraited=dataset+"Convergence"
 
-"""for epoch in range(0,200,40):
+for epoch in range(0,200,40):
     weights_path0=dataset+"Convergence/WeightChanges-Cora-GCN-param_512_2_0.99_0.2-monte_0-"+str(epoch)+".pt"
     weights_array0=torch.load(weights_path0)
     weights_array=[]
@@ -72,7 +72,8 @@ def WeightsToAdjaency(Weights):
             G.add_weighted_edges_from([(i,j+M,Weights[i,j])])
     print("Diconnected points is {}".format(list(nx.isolates(G))))
     G.remove_nodes_from(list(nx.isolates(G)))
-    return G
+    L=nx.adjacency_matrix(G)
+    return G,L
 
 
 def GraphPartition(G):

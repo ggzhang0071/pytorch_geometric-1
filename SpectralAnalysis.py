@@ -12,7 +12,8 @@ from collections import Counter
 from matplotlib.ticker import MaxNLocator
 from NNSpectralAnalysis import WeightsToAdjaency,GraphPartition
 from minisom import MiniSom    
-from sklearn.cluster import DBSCAN
+from sklearn.cluster import DBSCAN,SpectralClustering
+import cupy as cp
 
 def get_key (dict, value):
         return [k for k, v in dict.items() if v == value]
@@ -112,6 +113,8 @@ def delete_isolated_ccs(weight_array, adj_mat):
     new_adj_mat = weights_to_graph(new_weight_array)
     return new_weight_array, new_adj_mat
 
+
+
 def weights_to_graph(weights_array):
     # take an array of weight matrices, and return the adjacency matrix of the
     # neural network it defines.
@@ -172,18 +175,66 @@ def ToBlockMatrix(weights):
     return BlockMatrix
 
 
-def Fiedler_vector_cluter(G):
-    laplacian = nx.laplacian_matrix(G)
-    w, v = np.linalg.eig(laplacian.todense())
+def Fiedler_vector_cluster(G,startClassi):
+    nrom_laplacian_matrics = nx.normalized_laplacian_matrix(G,weight='weight')
+    nrom_laplacian_matrics_cpu=nrom_laplacian_matrics.toarray().astype("float64").tolist()
+    nrom_laplacian_matrics_gpu=cp.array(nrom_laplacian_matrics_cpu)
+    w,v=cp.linalg.eigh(nrom_laplacian_matrics_gpu)
+    #algebraic_connectivity,fiedler_vector=power_iteration(nrom_laplacian_matrics.)
     algebraic_connectivity = w[1] # Neat measure of how tight the graph is
     fiedler_vector = v[:,1].T
-    db = DBSCAN(eps=0.15, min_samples=1).fit(fiedler_vector.T)
-    cluter={}
-    for k in set(db.labels_):
-        class_members = [index[0] for index in np.argwhere(db.labels_ == k)]
-        oneClassNodes=[index for index in class_members]
-        cluter[k]=oneClassNodes
-    return cluter
+    PartOne=[]
+    PartTwo=[]
+    
+    for node in range(G.number_of_nodes()):
+        if fiedler_vector[node]<0:
+            PartOne.append(node)
+        else:
+            PartTwo.append(node)
+    PartitionResults={startClassi+0:PartOne,startClassi+1:PartTwo}
+    G1=nx.subgraph(G,PartOne)
+    G2=nx.subgraph(G,PartTwo)
+    return G1,G2,PartitionResults
+
+def CorrectWeightsNew(Weight,G,cluters,win):
+    max_iter=100
+    M=win[0]
+    N=win[1]
+    print(win)
+    PartitionClassi=set([*cluters.keys()])
+    VectorPairs=1
+    CorrectedEdge={}
+    som = MiniSom(M, N,len(Weight[0]), sigma=0.3, learning_rate=0.5) # initialization of 6x6 SOM
+    semipart=int((M-1)/2)
+    for OneClassi in PartitionClassi:
+        oneClassNodes=cluters[OneClassi]
+        H=nx.Graph()
+        H.add_nodes_from(oneClassNodes)
+        for i in [*H.nodes()]:
+            for j in [*H.nodes()]:
+                if (i,j) in G.edges():
+                    H.add_weighted_edges_from([(i,j,G.get_edge_data(i,j)['weight'])])
+        norm_laplacian_matrics = nx.normalized_laplacian_matrix(H)
+        #v=nx.fiedler_vector(G, weight='weight', normalized=True)
+        norm_laplacian_matrics_gpu=cp.array(norm_laplacian_matrics.toarray().astype("float64").tolist())
+        W,V=cp.linalg.eigh(norm_laplacian_matrics_gpu)
+        d = W[1] # Neat measure of how tight the graph is
+        v = V[:,1].T.tolist()
+        #d,v=power_iteration(nrom_laplacian_matrics)
+        EigenVectorPair=[]
+        for iter in range(VectorPairs):
+            EigenVectorPair.append((np.argmax(v),np.argmin(v)))
+            locx=np.argmax(v)
+            locy=np.argmin(v)
+            if locx<semipart:
+                ChooseWeights=Weight[:M][locy:N+locy]
+            elif locx>=semipart and locx<(M-semipart):
+                ChooseWeights=Weight[locx-semipart:locx+semipart+1][locy:N+locy]
+            else:
+                ChooseWeights=Weight[-M:][locy:N+locy]
+            for iter1 in range(max_iter):
+                Weight[locx]=som.correctweights(ChooseWeights,(semipart,locy%N),iter1, max_iter)
+    return Weight
 
 
 def CorrectWeights(Weight,G,Parition,win):
@@ -191,7 +242,7 @@ def CorrectWeights(Weight,G,Parition,win):
     M=win[0]
     N=win[1]
     print(win)
-    PartitionClassi=set([*Parition.keys()])
+    PartitionClassi=set([*Parition.values()])
     VectorPairs=1
     CorrectedEdge={}
     for OneClassi in PartitionClassi:

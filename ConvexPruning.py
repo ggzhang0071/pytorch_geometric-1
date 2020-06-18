@@ -17,7 +17,7 @@ from torch_geometric.nn import GCNConv, ChebConv,global_mean_pool,SplineConv,Gra
 #from pyts.image import RecurrencePlot
 from torch_geometric.datasets import MNISTSuperpixels,Planetoid,TUDataset,PPI,Amazon,Reddit,CoraFull
 import torch_geometric.transforms as T
-from SpectralAnalysis import ToBlockMatrix,Adjaencypartition,CorrectWeights,Fiedler_vector_cluter
+from SpectralAnalysis import ToBlockMatrix,Adjaencypartition,CorrectWeights,CorrectWeightsNew,Fiedler_vector_cluster
 from NNSpectralAnalysis import WeightsToAdjaency,GraphPartition
 from torch_geometric.nn import global_mean_pool as gap, global_max_pool as gmp
 import numpy as np
@@ -62,31 +62,36 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
             Graph_array=[]
             for (i,layer_name) in enumerate(state_dict):
                 if ("layers" in layer_name) and ("weight" in layer_name):
-                    classiResultsFiles="Results/PartitionResults/{}-oneClassNodeEpoch_{}Layer_{}.npy".format(modelName,str(epoch),str(i))
-                    GraphResultsFiles="Results/PartitionResults/{}-GraphEpoch_{}Layer_{}.npy".format(modelName,str(epoch),str(i))
-                    UseOld=False
-                    if os.path.exists(classiResultsFiles) and UseOld==True:
-                        pos,partition=np.load(classiResultsFiles,allow_pickle=True)
-                        partition_array.append(partition)
-                    if os.path.exists(GraphResultsFiles) and UseOld==True:
-                        fr=open(GraphResultsFiles,'rb')
-                        G=pickle.load(fr)
+                    classiResultsFiles="Results/PartitionResults/{}-oneClassNodeEpoch_{}Layer_{}.pkl".format(modelName,str(epoch),str(i))
+                    GraphResultsFiles="Results/PartitionResults/{}-GraphEpoch_{}Layer_{}.pkl".format(modelName,str(epoch),str(i))
+                    if os.path.exists(classiResultsFiles):
+                        frC=open(classiResultsFiles,'rb')
+                        cluster=pickle.load(frC)
+                        partition_array.append(cluster)
+                    if os.path.exists(GraphResultsFiles):
+                        frG=open(GraphResultsFiles,'rb')
+                        G=pickle.load(frG)
                         Graph_array.append(G)
                     else:
                         Weight=state_dict[layer_name]
                         if Weight.dim()==3:
                             Weight=np.squeeze(Weight)
                         Weight=Weight.cpu().detach().numpy()
-                        G=WeightsToAdjaency(Weight)
-                        cluter=Fiedler_vector_cluter(G)
-                        #pos,partition=GraphPartition(G)
+                        G,adj_mat=WeightsToAdjaency(Weight)
+                        #comps=nx.connected_components(G)
+                        G1,G2,PartitionResults=Fiedler_vector_cluster(G,0)
+                        G11,G12,PartitionResults1=Fiedler_vector_cluster(G1,0)
+                        G21,G22,PartitionResults2=Fiedler_vector_cluster(G2,2)
+                        PartitionResults = {**PartitionResults1, **PartitionResults2}   
                         Graph_array.append(G)
-                        partition_array.append(cluter)
-                        np.save(classiResultsFiles,cluter)
-                        fw=open(GraphResultsFiles,'wb')
-                        pickle.dump(G,fw)
+                        partition_array.append(PartitionResults)
+                        ### saving
+                        fwC=open(classiResultsFiles,'wb')
+                        pickle.dump(PartitionResults,fwC)
 
-                    
+                        fwG=open(GraphResultsFiles,'wb')
+                        pickle.dump(G,fwG)
+
         if epoch>num_epochs*alpha and epoch%10==0 and Flag==True:
             #torch.save(OptimizedNet.state_dict(),"Net_state_dict")
             state_dict = OptimizedNet.state_dict()
@@ -99,7 +104,7 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
                         Weight=np.squeeze(Weight)  
                         dimSequeeze=True
                     Weight=Weight.cpu().detach().numpy()
-                    Weight=CorrectWeights(Weight,Graph_array[i],partition_array[i],[int(WindowSize)]*2)
+                    Weight=CorrectWeightsNew(Weight,Graph_array[i],partition_array[i],[int(WindowSize)]*2)
                     if dimSequeeze==True:
                         Weight=np.expand_dims(Weight, axis=0)
                     Weight=torch.from_numpy(Weight).to('cuda')       
@@ -567,7 +572,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
 
 if __name__=="__main__":   
     parser = argparse.ArgumentParser(description='PyTorch Training')
-    parser.add_argument('--dataset',default='Cora',type=str, help='dataset to train')
+    parser.add_argument('--dataset',default='Pubmed',type=str, help='dataset to train')
     parser.add_argument('--modelName',default='GCN',type=str, help='model to use')
     parser.add_argument('--LR', default=0.5, type=float, help='learning rate') 
     parser.add_argument('--ConCoeff', default=0.99, type=float, help='contraction coefficients')
