@@ -16,7 +16,7 @@ from sklearn.cluster import DBSCAN,SpectralClustering
 import cupy as cp
 
 def get_key (dict, value):
-        return [k for k, v in dict.items() if v == value]
+    return [k for k, v in dict.items() if v == value]
     
     
 def weights_array_to_cluster_quality(weights_array, adj_mat, num_clusters,
@@ -177,7 +177,7 @@ def ToBlockMatrix(weights):
 
 def Fiedler_vector_cluster(G,startClassi):
     nrom_laplacian_matrics = nx.normalized_laplacian_matrix(G,weight='weight')
-    nrom_laplacian_matrics_cpu=nrom_laplacian_matrics.toarray().astype("float64").tolist()
+    nrom_laplacian_matrics_cpu=nrom_laplacian_matrics.toarray().tolist()
     nrom_laplacian_matrics_gpu=cp.array(nrom_laplacian_matrics_cpu)
     w,v=cp.linalg.eigh(nrom_laplacian_matrics_gpu)
     #algebraic_connectivity,fiedler_vector=power_iteration(nrom_laplacian_matrics.)
@@ -196,16 +196,28 @@ def Fiedler_vector_cluster(G,startClassi):
     G2=nx.subgraph(G,PartTwo)
     return G1,G2,PartitionResults
 
-def CorrectWeightsNew(Weight,G,cluters,win):
-    max_iter=100
+def chooseSemiMatrix(Weight,locx,M):
+    semipart=int((M-1)/2)
+    if locx<semipart:
+        ChooseWeights=Weight[:M]
+    elif locx>=semipart and locx<(M-semipart):
+            ChooseWeights=Weight[locx-semipart:locx+semipart+1]
+    else:
+            ChooseWeights=Weight[-M:]
+    return ChooseWeightspp 
+
+def CorrectWeights(Weight,G,cluters,win):
+    max_iter=5
     M=win[0]
     N=win[1]
-    print(win)
     PartitionClassi=set([*cluters.keys()])
-    VectorPairs=1
+    VectorPairs=10
     CorrectedEdge={}
     som = MiniSom(M, N,len(Weight[0]), sigma=0.3, learning_rate=0.5) # initialization of 6x6 SOM
     semipart=int((M-1)/2)
+    semiparty=int((N-1)/2)
+    
+    EigenVectorPair=[]
     for OneClassi in PartitionClassi:
         oneClassNodes=cluters[OneClassi]
         H=nx.Graph()
@@ -214,65 +226,28 @@ def CorrectWeightsNew(Weight,G,cluters,win):
             for j in [*H.nodes()]:
                 if (i,j) in G.edges():
                     H.add_weighted_edges_from([(i,j,G.get_edge_data(i,j)['weight'])])
-        norm_laplacian_matrics = nx.normalized_laplacian_matrix(H)
-        #v=nx.fiedler_vector(G, weight='weight', normalized=True)
-        norm_laplacian_matrics_gpu=cp.array(norm_laplacian_matrics.toarray().astype("float64").tolist())
-        W,V=cp.linalg.eigh(norm_laplacian_matrics_gpu)
-        d = W[1] # Neat measure of how tight the graph is
-        v = V[:,1].T.tolist()
-        #d,v=power_iteration(nrom_laplacian_matrics)
-        EigenVectorPair=[]
-        for iter in range(VectorPairs):
-            EigenVectorPair.append((np.argmax(v),np.argmin(v)))
-            locx=np.argmax(v)
-            locy=np.argmin(v)
-            if locx<semipart:
-                ChooseWeights=Weight[:M][locy:N+locy]
-            elif locx>=semipart and locx<(M-semipart):
-                ChooseWeights=Weight[locx-semipart:locx+semipart+1][locy:N+locy]
-            else:
-                ChooseWeights=Weight[-M:][locy:N+locy]
-            for iter1 in range(max_iter):
-                Weight[locx]=som.correctweights(ChooseWeights,(semipart,locy%N),iter1, max_iter)
-    return Weight
-
-
-def CorrectWeights(Weight,G,Parition,win):
-    max_iter=100
-    M=win[0]
-    N=win[1]
-    print(win)
-    PartitionClassi=set([*Parition.values()])
-    VectorPairs=1
-    CorrectedEdge={}
-    for OneClassi in PartitionClassi:
-        oneClassNodes=get_key(Parition,OneClassi)
-        H=nx.Graph(G.subgraph(oneClassNodes))
-        nrom_laplacian_matrics = nx.normalized_laplacian_matrix(H,weight='weight')
-        v=nx.fiedler_vector(G, weight='weight', normalized=True)
-        #d,v=power_iteration(nrom_laplacian_matrics)
-        EigenVectorPair=[]
-        for iter in range(VectorPairs):
-            EigenVectorPair.append((v.argmax(),v.argmin()))
-            v=np.delete(v,v.argmax())
-            v=np.delete(v,v.argmin())
-        CorrectedEdge[OneClassi]=EigenVectorPair
-        
-      
-    som = MiniSom(M, N,len(Weight[0]), sigma=0.3, learning_rate=0.5) # initialization of 6x6 SOM
-    semipart=int((M-1)/2)
-    for OneClassi in PartitionClassi:
-        for onePair in range(VectorPairs):
-            locx,locy=CorrectedEdge[Parition[OneClassi]][onePair]
-            if locx<semipart:
-                ChooseWeights=Weight[:M]  
-            elif locx>=semipart and locx<(M-semipart):
-                ChooseWeights=Weight[locx-semipart:locx+semipart+1]
-            else:
-                ChooseWeights=Weight[-M:]
-            for iter1 in range(max_iter):
-                Weight[locx]=som.correctweights(ChooseWeights,(semipart,locy%N),iter1, max_iter)
-    return Weight
+        if H.number_of_edges()>=2:
+            norm_laplacian_matrics = nx.normalized_laplacian_matrix(H)
+            #v=nx.fiedler_vector(G, weight='weight', normalized=True)
+            norm_laplacian_matrics_gpu=cp.array(norm_laplacian_matrics.toarray().tolist())
+            W,V=cp.linalg.eigh(norm_laplacian_matrics_gpu)
+            d = W[1] # Neat measure of how tight the graph 
+            v = V[:,1].T.tolist()
+            #d,v=power_iteration(nrom_laplacian_matrics)
+            for iter in range(VectorPairs):
+                EigenVectorPair.append([np.argmax(v),np.argmin(v)])
+                locx=np.argmax(v)
+                locy=np.argmin(v)
+                """ChooseWeights=chooseSemiMatrix(Weight,locx,M)
+                ChooseWeights=chooseSemiMatrix(ChooseWeights.T,locy,N).T
+                for iter1 in range(max_iter):
+                    Weight[locx,locy-semiparty:locy+semiparty+1]+=som.correctweights(ChooseWeights,(semipart,semiparty),iter1, max_iter)"""
+                v=np.delete(v,locx-1)
+                v=np.delete(v,locy-1)
+        else:
+            continue
+    EigenVectorPair=torch.tensor(EigenVectorPair).to("cuda")
+    return EigenVectorPair
 
 
 def eigenvalue(A, v):

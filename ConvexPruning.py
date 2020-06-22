@@ -17,7 +17,7 @@ from torch_geometric.nn import GCNConv, ChebConv,global_mean_pool,SplineConv,Gra
 #from pyts.image import RecurrencePlot
 from torch_geometric.datasets import MNISTSuperpixels,Planetoid,TUDataset,PPI,Amazon,Reddit,CoraFull
 import torch_geometric.transforms as T
-from SpectralAnalysis import ToBlockMatrix,Adjaencypartition,CorrectWeights,CorrectWeightsNew,Fiedler_vector_cluster
+from SpectralAnalysis import ToBlockMatrix,Adjaencypartition,CorrectWeights,Fiedler_vector_cluster
 from NNSpectralAnalysis import WeightsToAdjaency,GraphPartition
 from torch_geometric.nn import global_mean_pool as gap, global_max_pool as gmp
 import numpy as np
@@ -62,8 +62,8 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
             Graph_array=[]
             for (i,layer_name) in enumerate(state_dict):
                 if ("layers" in layer_name) and ("weight" in layer_name):
-                    classiResultsFiles="Results/PartitionResults/{}-oneClassNodeEpoch_{}Layer_{}.pkl".format(modelName,str(epoch),str(i))
-                    GraphResultsFiles="Results/PartitionResults/{}-GraphEpoch_{}Layer_{}.pkl".format(modelName,str(epoch),str(i))
+                    classiResultsFiles="Results/PartitionResults/{}-{}-oneClassNodeEpoch_{}Layer_{}.pkl".format(dataset,modelName,str(epoch),str(i))
+                    GraphResultsFiles="Results/PartitionResults/{}-{}-GraphEpoch_{}Layer_{}.pkl".format(dataset,modelName,str(epoch),str(i))
                     if os.path.exists(classiResultsFiles):
                         frC=open(classiResultsFiles,'rb')
                         cluster=pickle.load(frC)
@@ -74,6 +74,7 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
                         Graph_array.append(G)
                     else:
                         Weight=state_dict[layer_name]
+                        print(Weight.shape)
                         if Weight.dim()==3:
                             Weight=np.squeeze(Weight)
                         Weight=Weight.cpu().detach().numpy()
@@ -82,7 +83,7 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
                         G1,G2,PartitionResults=Fiedler_vector_cluster(G,0)
                         G11,G12,PartitionResults1=Fiedler_vector_cluster(G1,0)
                         G21,G22,PartitionResults2=Fiedler_vector_cluster(G2,2)
-                        PartitionResults = {**PartitionResults1, **PartitionResults2}   
+                        PartitionResults={**PartitionResults1, **PartitionResults2}   
                         Graph_array.append(G)
                         partition_array.append(PartitionResults)
                         ### saving
@@ -96,6 +97,8 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
             #torch.save(OptimizedNet.state_dict(),"Net_state_dict")
             state_dict = OptimizedNet.state_dict()
             i=0
+            global AddedEigenVectorPair
+            AddedEigenVectorPair=[]
             for layer_name in state_dict:
                 if ("layers" in layer_name) and ("weight" in layer_name):
                     Weight=state_dict[layer_name]
@@ -104,7 +107,8 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
                         Weight=np.squeeze(Weight)  
                         dimSequeeze=True
                     Weight=Weight.cpu().detach().numpy()
-                    Weight=CorrectWeightsNew(Weight,Graph_array[i],partition_array[i],[int(WindowSize)]*2)
+                    tmp=CorrectWeights(Weight,Graph_array[i],partition_array[i],[int(WindowSize)]*2)
+                    AddedEigenVectorPair.append(tmp.T)
                     if dimSequeeze==True:
                         Weight=np.expand_dims(Weight, axis=0)
                     Weight=torch.from_numpy(Weight).to('cuda')       
@@ -114,6 +118,8 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
                 
         else:
             SVDOrNot=[]
+            AddedEigenVectorPair=[torch.Tensor([[],[]]),torch.Tensor([[],[]])]
+
         TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
         Acc=test(trainloader,OptimizedNet,criterionNew)          
         print('\n Epoch: {},  tain loss: {:.4f}, train acc: {:.4f}, val acc: {:.4f}, test acc: {:.4f} \n'.format(epoch,TrainLoss[0],Acc[0],Acc[1],Acc[2]))
@@ -239,10 +245,15 @@ class GCN(torch.nn.Module):
     def forward(self,data):
         x, edge_index = data.x, data.edge_index
         DiagElemnt=[]
+        i=0
         for layer in self.layers[:-1]:
-            SaveDynamicsEvolution(x)
-            x=layer(x, edge_index)
+            SaveDynamicsEvolution(x) 
+            if AddedEigenVectorPair[i].shape[1]>1:
+                print("add edges OK")
+            edge_index=torch.cat((edge_index,AddedEigenVectorPair[i]),1)
+            x=layer(x,edge_index)
             x =x*torch.sigmoid(x)
+            i+=1
         #x = F.dropout(x, training=self.training)
         x = F.log_softmax(self.layers[-1](x,edge_index),dim=1)
         return x
@@ -462,7 +473,6 @@ def test(trainloader,net,criterion):
     return accs
 
 
-
 def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,optimizerName,MonteSize,savepath):
     Batch_size=int(params[0]) 
     WindowSize=params[4]
@@ -568,11 +578,9 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
     print("The change of test error is:{}".format(TestAccs))
     print_nvidia_useage()
 
-
-
 if __name__=="__main__":   
     parser = argparse.ArgumentParser(description='PyTorch Training')
-    parser.add_argument('--dataset',default='Pubmed',type=str, help='dataset to train')
+    parser.add_argument('--dataset',default='Cora',type=str, help='dataset to train')
     parser.add_argument('--modelName',default='GCN',type=str, help='model to use')
     parser.add_argument('--LR', default=0.5, type=float, help='learning rate') 
     parser.add_argument('--ConCoeff', default=0.99, type=float, help='contraction coefficients')
@@ -609,6 +617,8 @@ if __name__=="__main__":
     params=[args.BatchSize,args.NumLayers,args.ConCoeff,args.LR,args.WindowSize]
     global modelName
     modelName=args.modelName
+    global dataset
+    dataset=args.dataset
     
     TrainingNet(args.dataset,args.modelName,params,args.num_pre_epochs,args.num_epochs,args.NumCutoff,args.optimizer,args.MonteSize,args.savepath)
 
