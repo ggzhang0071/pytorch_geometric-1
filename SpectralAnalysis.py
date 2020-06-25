@@ -38,6 +38,31 @@ def weights_array_to_cluster_quality(weights_array, adj_mat, num_clusters,
     return ncut_val, clustering_labels
 
 
+def WeightsToAdjaency(Weights):
+    M,N=Weights.shape
+    GWeight=nx.Graph()
+    GWeight.add_nodes_from(range(M+N))
+    G1=GWeight
+    for i in range(M):
+        for j in range(N):
+            GWeight.add_weighted_edges_from([(i,j+M,Weights[i,j])])
+
+            G1.add_edge(i,j+M)
+            
+    """print("Diconnected points is {}".format(list(nx.isolates(G))))
+    G.remove_nodes_from(list(nx.isolates(G)))"""
+    GWeight=GWeight.to_undirected()
+    G1=G1.to_undirected()
+    return GWeight,G1
+
+
+def GraphPartition(G):
+    G.remove_nodes_from(list(nx.isolates(G)))
+    #Degree_distribution(G)
+    partition=community_louvain.best_partition(G)
+    pos=community_layout(G,partition)
+    return pos,partition
+
 def cluster_net(n_clusters, adj_mat, eigen_solver, assign_labels):
     cluster_alg = SpectralClustering(n_clusters=n_clusters,
                                      eigen_solver=eigen_solver,
@@ -184,7 +209,7 @@ def Compute_fiedler_vector(G):
     #algebraic_connectivity,fiedler_vector=power_iteration(nrom_laplacian_matrics.)
     algebraic_connectivity = w[1] # Neat measure of how tight the graph is
     fiedler_vector = v[:,1].T
-    fiedler_vector=torch.Tensor(cp.asarray(fiedler_vector).astype("float64"))
+    fiedler_vector=torch.Tensor(cp.asarray(cp.real(fiedler_vector)))
     algebraic_connectivity=torch.Tensor(cp.asarray(algebraic_connectivity))
     return algebraic_connectivity, fiedler_vector
 

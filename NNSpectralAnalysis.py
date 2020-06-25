@@ -61,30 +61,6 @@ def ToBlockMatrix(weights):
     return BlockMatrix
 
 
-
-def WeightsToAdjaency(Weights):
-    M,N=Weights.shape
-    GWeight=nx.Graph()
-    GWeight.add_nodes_from(range(M+N))
-    G1=GWeight
-    for i in range(M):
-        for j in range(N):
-            GWeight.add_weighted_edges_from([(i,j+M,Weights[i,j])])
-            G1.add_edge(i,j+M)
-            
-    """print("Diconnected points is {}".format(list(nx.isolates(G))))
-    G.remove_nodes_from(list(nx.isolates(G)))"""
-    return GWeight,G1
-
-
-def GraphPartition(G):
-    G.remove_nodes_from(list(nx.isolates(G)))
-    #Degree_distribution(G)
-    partition=community_louvain.best_partition(G)
-    pos=community_layout(G,partition)
-    return pos,partition
-
-
 def community_layout(g, partition):
     """
     Compute the layout for a modular graph.

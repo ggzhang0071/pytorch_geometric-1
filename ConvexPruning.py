@@ -17,8 +17,7 @@ from torch_geometric.nn import GCNConv, ChebConv,global_mean_pool,SplineConv,Gra
 #from pyts.image import RecurrencePlot
 from torch_geometric.datasets import MNISTSuperpixels,Planetoid,TUDataset,PPI,Amazon,Reddit,CoraFull
 import torch_geometric.transforms as T
-from SpectralAnalysis import ToBlockMatrix,Adjaencypartition,CorrectWeights,Fiedler_vector_cluster,Compute_fiedler_vector
-from NNSpectralAnalysis import WeightsToAdjaency,GraphPartition
+from SpectralAnalysis import WeightsToAdjaency,Fiedler_vector_cluster,Compute_fiedler_vector
 from torch_geometric.nn import global_mean_pool as gap, global_max_pool as gmp
 import numpy as np
 import argparse
@@ -44,7 +43,7 @@ def ChooseModel(model_name,datasetroot,width):
         
     return net
 
-def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,WindowSize,mark,markweights,SaveModule,model_to_save,Flag):
+def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,regularization_coef,mark,markweights,SaveModule,model_to_save,Flag):
     best_acc =1  # best test loss
     TrainConvergence=[]
     TestConvergence=[]
@@ -55,63 +54,9 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
             SVDOrNot=[NumCutoff,"{}-{}".format(mark,epoch)]
             """NewNetworkWeight=RetainNetworkSize(OptimizedNet,params[2])[1]
             torch.save(NewNetworkWeight[0:-1],"{}-{}.pt".format(markweights,epoch))"""
-        """if epoch==int(num_epochs*alpha) and Flag==True:
-            # compute the partition
-            #Parition_array=PartitionResults(OptimizedNet)
-            state_dict = OptimizedNet.state_dict()
-            partition_array=[]
-            Graph_array=[]
-            incidence_matrix_array=[]
-            fiedler_vector_array=[]
-            L_array=[]
-            for (i,layer_name) in enumerate(state_dict):
-                if ("layers" in layer_name) and ("weight" in layer_name):
-                    classiResultsFiles="Results/PartitionResults/{}-{}-oneClassNodeEpoch_{}Layer_{}.pkl".format(dataset,modelName,str(epoch),str(i))
-                    GraphResultsFiles="Results/PartitionResults/{}-{}-GraphEpoch_{}Layer_{}.pkl".format(dataset,modelName,str(epoch),str(i))
- 
-                    if os.path.exists(classiResultsFiles):
-                        frC=open(classiResultsFiles,'rb')
-                        cluster=pickle.load(frC)
-                        partition_array.append(cluster)
-                        
-                    if os.path.exists(GraphResultsFiles):
-                        frG=open(GraphResultsFiles,'rb')
-                        G=pickle.load(frG)
-                        L=nx.adjacency_matrix(G)
-                        incidence_matrix=nx.incidence_matrix(G)
-                        algebraic_connectivity,fiedler_vector=Compute_fiedler_vector(G)
-                        Graph_array.append(G)
-                      
-                        incidence_matrix_array.append(incidence_matrix)
-                        fiedler_vector_array.append(fiedler_vector)
-                        L_array.append(L)
-
-                    else:
-                        Weight=state_dict[layer_name]
-                        print(Weight.shape)
-                        if Weight.dim()==3:
-                            Weight=np.squeeze(Weight)
-                        Weight=Weight.cpu().detach().numpy()
-                        G,Gu=WeightsToAdjaency(Weight)
-                        L=nx.adjacency_matrix(G)
-                        incidence_matrix=nx.incidence_matrix(Gu)
-                        #comps=nx.connected_components(G)
-                        G1,G2,PartitionResults=Fiedler_vector_cluster(G,0)
-                        G11,G12,PartitionResults1=Fiedler_vector_cluster(G1,0)
-                        G21,G22,PartitionResults2=Fiedler_vector_cluster(G2,2)
-                        PartitionResults={**PartitionResults1, **PartitionResults2}   
-                        Graph_array.append(G)
-                        incidence_matrix_array.append(incidence_matrix)
-                        partition_array.append(PartitionResults)
-                        ### saving
-                        fwC=open(classiResultsFiles,'wb')
-                        pickle.dump(PartitionResults,fwC)
-
-                        fwG=open(GraphResultsFiles,'wb')
-                        pickle.dump(G,fwG)"""
 
         if epoch>num_epochs*alpha and epoch%10==0 and Flag==True:
-            kwargs=0.1
+            kwargs=regularization_coef
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew,kwargs)
         else:
             SVDOrNot=[]
@@ -245,9 +190,9 @@ class GCN(torch.nn.Module):
         i=0
         for layer in self.layers[:-1]:
             SaveDynamicsEvolution(x) 
-            if AddedEigenVectorPair[i].shape[1]>1:
+            """if AddedEigenVectorPair[i].shape[1]>1:
                 print("add edges OK")
-            edge_index=torch.cat((edge_index,AddedEigenVectorPair[i]),1)
+            edge_index=torch.cat((edge_index,AddedEigenVectorPair[i]),1)"""
             x=layer(x,edge_index)
             x =x*torch.sigmoid(x)
             i+=1
@@ -440,7 +385,7 @@ def train(trainloader,net,optimizer,criterion,*kwargs):
             target= torch.cat([data.y[data.train_mask]]).to(output.device)
             loss = criterion(output[data.train_mask], target)
             if len(kwargs)==1:
-                regularization_param=kwargs[0]
+                regularization_coef=kwargs[0]
                 for layer_name, parameters in net.named_parameters():
                     if ("layers" in layer_name) and ("weight" in layer_name):
                         Weight=parameters
@@ -450,7 +395,7 @@ def train(trainloader,net,optimizer,criterion,*kwargs):
                         G,Gu=WeightsToAdjaency(Weight)
                         algebraic_connectivity,fiedler_vector=Compute_fiedler_vector(G)
                         L=nx.adjacency_matrix(G)
-                        regloss = regularization_param*torch.dot(fiedler_vector,torch.mv( torch.Tensor(L.todense()),fiedler_vector))
+                        regloss = regularization_coef*torch.dot(fiedler_vector,torch.mv( torch.Tensor(L.todense()),fiedler_vector))
                         loss += regloss
             else: 
                 pass
@@ -488,7 +433,7 @@ def test(trainloader,net,criterion):
 
 def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,optimizerName,MonteSize,savepath):
     Batch_size=int(params[0]) 
-    WindowSize=params[4]
+    regularization_coef=params[4]
     root='/git/data/GraphData/'+dataset
     TestAccs=[]
     for Monte_iter in range(MonteSize):
@@ -560,7 +505,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         mark="{}{}Convergence/DiagElement-{}".format(savepath,dataset,FileName)
         markweights="{}{}Convergence/WeightChanges-{}".format(savepath,dataset,FileName)
                      
-        PreTrainConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,trainloader,net,optimizer,criterion,NumCutoff,WindowSize,mark,markweights,False,model_to_save,False)
+        PreTrainConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,trainloader,net,optimizer,criterion,NumCutoff,regularization_coef,mark,markweights,False,model_to_save,False)
         print('dataset: {}, model name:{}, the Pre-train error of {} epoches  is:  {}, test acc is {}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreAcc))
 
         NewNetworksize=RetainNetworkSize(net,params[2])
@@ -579,9 +524,11 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         elif optimizerName =="Adam":
             optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4, amsgrad=False)
 
-        TrainConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,WindowSize,mark,markweights,True,model_to_save,True)
-        np.save("{}/{}Convergence/TrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
-        np.save("{}/{}Convergence/NewNetworkSizeAdjust-{}".format(savepath,dataset,FileName),NewNetworkSizeAdjust)
+        TrainConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,regularization_coef,mark,markweights,True,model_to_save,True)
+        np.save("{}/{}Convergence/AlgebraicConectivityTrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
+        np.save("{}/{}Convergence/AlgebraicConectivityTestAcc-{}".format(savepath,dataset,FileName),TestAcc)
+
+        #np.save("{}/{}Convergence/NewNetworkSizeAdjust-{}".format(savepath,dataset,FileName),NewNetworkSizeAdjust)
         
         #np.save(savepath+'TestConvergence-'+FileName,TestConvergence)
         #torch.cuda.empty_cache()
@@ -599,10 +546,11 @@ if __name__=="__main__":
     parser.add_argument('--ConCoeff', default=0.99, type=float, help='contraction coefficients')
     parser.add_argument('--NumCutoff', default=5, type=float, help='contraction coefficients')
     parser.add_argument('--WindowSize', default=3, type=float, help='Window size for network correction')
+    parser.add_argument('--regularization_coef',default=0.01,type=float, help='regularization coefficient')
+
     parser.add_argument('--rho', type=float, default=1e-2, metavar='R',
                         help='cardinality weight (default: 1e-2)')
     parser.add_argument('--optimizer',default='SGD',type=str, help='optimizer to train')
-
     parser.add_argument('--num_pre_epochs', type=int, default=30, metavar='P',
                         help='number of epochs to pretrain (default: 3)')
     parser.add_argument('--num_epochs', type=int, default=100, metavar='N',
@@ -612,7 +560,7 @@ if __name__=="__main__":
     parser.add_argument('--BatchSize', default=512, type=int, help='batch size')
     parser.add_argument('--NumLayers', default=1, type=int, help='Number of layers')
     parser.add_argument('--PruningTimes', default=2, type=int, help='Pruning times')
-    parser.add_argument('--savepath', type=str, default='Results/', help='Path to save results')
+    parser.add_argument('--savepath', type=str, default='Results', help='Path to save results')
     parser.add_argument('--return_output', type=str, default=False, help='Whether output')
     parser.add_argument('--resume', '-r', type=str,default=False, help='resume from checkpoint')
     parser.add_argument('--print_device_useage', type=str, default=False, help='Whether print gpu useage')
@@ -627,7 +575,7 @@ if __name__=="__main__":
     resume=args.resume
     save_recurrence_plots=args.save_recurrence_plots
     #params=[args.BatchSize,args.NumLayers,args.args.ConCoeff,args.CutoffCoeff]
-    params=[args.BatchSize,args.NumLayers,args.ConCoeff,args.LR,args.WindowSize]
+    params=[args.BatchSize,args.NumLayers,args.ConCoeff,args.LR,args.regularization_coef]
     global modelName
     modelName=args.modelName
     global dataset
