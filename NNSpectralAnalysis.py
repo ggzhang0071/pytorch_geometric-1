@@ -64,16 +64,19 @@ def ToBlockMatrix(weights):
 
 def WeightsToAdjaency(Weights):
     M,N=Weights.shape
-    np.zeros((M+N,M+N))
-    G=nx.Graph()
-    G.add_nodes_from(range(M+M))
+    GWeight=nx.Graph()
+    GWeight.add_nodes_from(range(M+N))
+    G1=GWeight
     for i in range(M):
         for j in range(N):
-            G.add_weighted_edges_from([(i,j+M,Weights[i,j])])
-    print("Diconnected points is {}".format(list(nx.isolates(G))))
-    G.remove_nodes_from(list(nx.isolates(G)))
-    L=nx.adjacency_matrix(G)
-    return G,L
+            GWeight.add_weighted_edges_from([(i,j+M,Weights[i,j])])
+            G1.add_edge(i,j+M)
+            
+    """print("Diconnected points is {}".format(list(nx.isolates(G))))
+    G.remove_nodes_from(list(nx.isolates(G)))"""
+    L=nx.adjacency_matrix(GWeight)
+    incidence_matrix=nx.incidence_matrix(G1)
+    return GWeight,L,incidence_matrix
 
 
 def GraphPartition(G):

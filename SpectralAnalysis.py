@@ -10,10 +10,12 @@ import pickle
 import scipy.sparse as sparse
 from collections import Counter
 from matplotlib.ticker import MaxNLocator
-from NNSpectralAnalysis import WeightsToAdjaency,GraphPartition
 from minisom import MiniSom    
 from sklearn.cluster import DBSCAN,SpectralClustering
 import cupy as cp
+from torch.utils.dlpack import from_dlpack, to_dlpack
+from cupy.core.dlpack import toDlpack,fromDlpack
+
 
 def get_key (dict, value):
     return [k for k, v in dict.items() if v == value]
@@ -175,14 +177,19 @@ def ToBlockMatrix(weights):
     return BlockMatrix
 
 
-def Fiedler_vector_cluster(G,startClassi):
+def Compute_fiedler_vector(G):
     nrom_laplacian_matrics = nx.normalized_laplacian_matrix(G,weight='weight')
-    nrom_laplacian_matrics_cpu=nrom_laplacian_matrics.toarray().tolist()
-    nrom_laplacian_matrics_gpu=cp.array(nrom_laplacian_matrics_cpu)
-    w,v=cp.linalg.eigh(nrom_laplacian_matrics_gpu)
+    nrom_laplacian_matrics_cupy=cp.asarray(nrom_laplacian_matrics.toarray())
+    w,v=cp.linalg.eigh(nrom_laplacian_matrics_cupy)
     #algebraic_connectivity,fiedler_vector=power_iteration(nrom_laplacian_matrics.)
     algebraic_connectivity = w[1] # Neat measure of how tight the graph is
     fiedler_vector = v[:,1].T
+    fiedler_vector=torch.Tensor(cp.asarray(fiedler_vector).astype("float64"))
+    algebraic_connectivity=torch.Tensor(cp.asarray(algebraic_connectivity))
+    return algebraic_connectivity, fiedler_vector
+
+def Fiedler_vector_cluster(G,startClassi):
+    Compute_fiedler_vector(G)
     PartOne=[]
     PartTwo=[]
     

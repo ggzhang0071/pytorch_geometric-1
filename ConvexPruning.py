@@ -17,7 +17,7 @@ from torch_geometric.nn import GCNConv, ChebConv,global_mean_pool,SplineConv,Gra
 #from pyts.image import RecurrencePlot
 from torch_geometric.datasets import MNISTSuperpixels,Planetoid,TUDataset,PPI,Amazon,Reddit,CoraFull
 import torch_geometric.transforms as T
-from SpectralAnalysis import ToBlockMatrix,Adjaencypartition,CorrectWeights,Fiedler_vector_cluster
+from SpectralAnalysis import ToBlockMatrix,Adjaencypartition,CorrectWeights,Fiedler_vector_cluster,Compute_fiedler_vector
 from NNSpectralAnalysis import WeightsToAdjaency,GraphPartition
 from torch_geometric.nn import global_mean_pool as gap, global_max_pool as gmp
 import numpy as np
@@ -25,6 +25,7 @@ import argparse
 import os,sys
 global resume
 import pickle
+import networkx as nx
 
 
 def ChooseModel(model_name,datasetroot,width):
@@ -60,31 +61,46 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
             state_dict = OptimizedNet.state_dict()
             partition_array=[]
             Graph_array=[]
+            incidence_matrix_array=[]
+            fiedler_vector_array=[]
+            L_array=[]
             for (i,layer_name) in enumerate(state_dict):
                 if ("layers" in layer_name) and ("weight" in layer_name):
                     classiResultsFiles="Results/PartitionResults/{}-{}-oneClassNodeEpoch_{}Layer_{}.pkl".format(dataset,modelName,str(epoch),str(i))
                     GraphResultsFiles="Results/PartitionResults/{}-{}-GraphEpoch_{}Layer_{}.pkl".format(dataset,modelName,str(epoch),str(i))
+ 
                     if os.path.exists(classiResultsFiles):
                         frC=open(classiResultsFiles,'rb')
                         cluster=pickle.load(frC)
                         partition_array.append(cluster)
+                        
                     if os.path.exists(GraphResultsFiles):
                         frG=open(GraphResultsFiles,'rb')
                         G=pickle.load(frG)
+                        L=nx.adjacency_matrix(G)
+                        incidence_matrix=nx.incidence_matrix(G)
+                        algebraic_connectivity,fiedler_vector=Compute_fiedler_vector(G)
                         Graph_array.append(G)
+                      
+                        incidence_matrix_array.append(incidence_matrix)
+                        fiedler_vector_array.append(fiedler_vector)
+                        L_array.append(L)
+
                     else:
                         Weight=state_dict[layer_name]
                         print(Weight.shape)
                         if Weight.dim()==3:
                             Weight=np.squeeze(Weight)
                         Weight=Weight.cpu().detach().numpy()
-                        G,adj_mat=WeightsToAdjaency(Weight)
+                        G,L,incidence_matrix=WeightsToAdjaency(Weight)
+                
                         #comps=nx.connected_components(G)
                         G1,G2,PartitionResults=Fiedler_vector_cluster(G,0)
                         G11,G12,PartitionResults1=Fiedler_vector_cluster(G1,0)
                         G21,G22,PartitionResults2=Fiedler_vector_cluster(G2,2)
                         PartitionResults={**PartitionResults1, **PartitionResults2}   
                         Graph_array.append(G)
+                        incidence_matrix_array.append(incidence_matrix)
                         partition_array.append(PartitionResults)
                         ### saving
                         fwC=open(classiResultsFiles,'wb')
@@ -107,20 +123,21 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
                         Weight=np.squeeze(Weight)  
                         dimSequeeze=True
                     Weight=Weight.cpu().detach().numpy()
-                    tmp=CorrectWeights(Weight,Graph_array[i],partition_array[i],[int(WindowSize)]*2)
-                    AddedEigenVectorPair.append(tmp.T)
+                    AddedEigenVectorPair.append(CorrectWeights(Weight,Graph_array[i],partition_array[i],[int(WindowSize)]*2).T)
+                    incidence_matrix_array[i].todense()
                     if dimSequeeze==True:
                         Weight=np.expand_dims(Weight, axis=0)
                     Weight=torch.from_numpy(Weight).to('cuda')       
                     state_dict[layer_name]=Weight
                     i+=1
-                OptimizedNet.load_state_dict(state_dict) 
-                
+            OptimizedNet.load_state_dict(state_dict) 
+            kwargs=[0.01,L_array,fiedler_vector_array]
+            TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew,kwargs)
         else:
             SVDOrNot=[]
             AddedEigenVectorPair=[torch.Tensor([[],[]]),torch.Tensor([[],[]])]
+            TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
 
-        TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
         Acc=test(trainloader,OptimizedNet,criterionNew)          
         print('\n Epoch: {},  tain loss: {:.4f}, train acc: {:.4f}, val acc: {:.4f}, test acc: {:.4f} \n'.format(epoch,TrainLoss[0],Acc[0],Acc[1],Acc[2]))
         TrainConvergence.append(statistics.mean(TrainLoss))
@@ -431,7 +448,7 @@ def RetainNetworkSize(net,ConCoeff):
 
 
 
-def train(trainloader,net,optimizer,criterion):
+def train(trainloader,net,optimizer,criterion,*kwargs):
     net.train()
     train_loss = []
     Bath_data_list=[]
@@ -442,6 +459,14 @@ def train(trainloader,net,optimizer,criterion):
         for data in data_list:
             target= torch.cat([data.y[data.train_mask]]).to(output.device)
             loss = criterion(output[data.train_mask], target)
+            if len(kwargs)==1:
+                regularization_param,L_array,fiedler_vector_array=kwargs[0]
+                for i in range(len(L_array)):
+                    regloss = regularization_param*torch.dot(fiedler_vector_array[i],torch.mv( torch.Tensor(L_array[i].todense()),fiedler_vector_array[i]))
+                    loss += regloss
+            else: 
+                pass
+
         loss.backward()
         train_loss.append(loss.item())  
         optimizer.step()
