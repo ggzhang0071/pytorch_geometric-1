@@ -189,10 +189,9 @@ def Compute_fiedler_vector(G):
     return algebraic_connectivity, fiedler_vector
 
 def Fiedler_vector_cluster(G,startClassi):
-    Compute_fiedler_vector(G)
+    algebraic_connectivity, fiedler_vector=Compute_fiedler_vector(G)
     PartOne=[]
     PartTwo=[]
-    
     for node in range(G.number_of_nodes()):
         if fiedler_vector[node]<0:
             PartOne.append(node)
@@ -234,13 +233,7 @@ def CorrectWeights(Weight,G,cluters,win):
                 if (i,j) in G.edges():
                     H.add_weighted_edges_from([(i,j,G.get_edge_data(i,j)['weight'])])
         if H.number_of_edges()>=2:
-            norm_laplacian_matrics = nx.normalized_laplacian_matrix(H)
-            #v=nx.fiedler_vector(G, weight='weight', normalized=True)
-            norm_laplacian_matrics_gpu=cp.array(norm_laplacian_matrics.toarray().tolist())
-            W,V=cp.linalg.eigh(norm_laplacian_matrics_gpu)
-            d = W[1] # Neat measure of how tight the graph 
-            v = V[:,1].T.tolist()
-            #d,v=power_iteration(nrom_laplacian_matrics)
+            d,v=Compute_fiedler_vector(G)
             for iter in range(VectorPairs):
                 EigenVectorPair.append([np.argmax(v),np.argmin(v)])
                 locx=np.argmax(v)
@@ -249,6 +242,9 @@ def CorrectWeights(Weight,G,cluters,win):
                 ChooseWeights=chooseSemiMatrix(ChooseWeights.T,locy,N).T
                 for iter1 in range(max_iter):
                     Weight[locx,locy-semiparty:locy+semiparty+1]+=som.correctweights(ChooseWeights,(semipart,semiparty),iter1, max_iter)"""
+            
+                if (locx,locy) in G.edges() or (locx,locy) in H.edges():
+                    print("exists topology errors")
                 v=np.delete(v,locx-1)
                 v=np.delete(v,locy-1)
         else:

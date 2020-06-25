@@ -74,9 +74,7 @@ def WeightsToAdjaency(Weights):
             
     """print("Diconnected points is {}".format(list(nx.isolates(G))))
     G.remove_nodes_from(list(nx.isolates(G)))"""
-    L=nx.adjacency_matrix(GWeight)
-    incidence_matrix=nx.incidence_matrix(G1)
-    return GWeight,L,incidence_matrix
+    return GWeight,G1
 
 
 def GraphPartition(G):

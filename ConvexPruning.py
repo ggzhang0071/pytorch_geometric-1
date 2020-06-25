@@ -55,7 +55,7 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
             SVDOrNot=[NumCutoff,"{}-{}".format(mark,epoch)]
             """NewNetworkWeight=RetainNetworkSize(OptimizedNet,params[2])[1]
             torch.save(NewNetworkWeight[0:-1],"{}-{}.pt".format(markweights,epoch))"""
-        if epoch==int(num_epochs*alpha) and Flag==True:
+        """if epoch==int(num_epochs*alpha) and Flag==True:
             # compute the partition
             #Parition_array=PartitionResults(OptimizedNet)
             state_dict = OptimizedNet.state_dict()
@@ -92,8 +92,9 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
                         if Weight.dim()==3:
                             Weight=np.squeeze(Weight)
                         Weight=Weight.cpu().detach().numpy()
-                        G,L,incidence_matrix=WeightsToAdjaency(Weight)
-                
+                        G,Gu=WeightsToAdjaency(Weight)
+                        L=nx.adjacency_matrix(G)
+                        incidence_matrix=nx.incidence_matrix(Gu)
                         #comps=nx.connected_components(G)
                         G1,G2,PartitionResults=Fiedler_vector_cluster(G,0)
                         G11,G12,PartitionResults1=Fiedler_vector_cluster(G1,0)
@@ -107,31 +108,10 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
                         pickle.dump(PartitionResults,fwC)
 
                         fwG=open(GraphResultsFiles,'wb')
-                        pickle.dump(G,fwG)
+                        pickle.dump(G,fwG)"""
 
         if epoch>num_epochs*alpha and epoch%10==0 and Flag==True:
-            #torch.save(OptimizedNet.state_dict(),"Net_state_dict")
-            state_dict = OptimizedNet.state_dict()
-            i=0
-            global AddedEigenVectorPair
-            AddedEigenVectorPair=[]
-            for layer_name in state_dict:
-                if ("layers" in layer_name) and ("weight" in layer_name):
-                    Weight=state_dict[layer_name]
-                    dimSequeeze=False
-                    if Weight.dim()==3:
-                        Weight=np.squeeze(Weight)  
-                        dimSequeeze=True
-                    Weight=Weight.cpu().detach().numpy()
-                    AddedEigenVectorPair.append(CorrectWeights(Weight,Graph_array[i],partition_array[i],[int(WindowSize)]*2).T)
-                    incidence_matrix_array[i].todense()
-                    if dimSequeeze==True:
-                        Weight=np.expand_dims(Weight, axis=0)
-                    Weight=torch.from_numpy(Weight).to('cuda')       
-                    state_dict[layer_name]=Weight
-                    i+=1
-            OptimizedNet.load_state_dict(state_dict) 
-            kwargs=[0.01,L_array,fiedler_vector_array]
+            kwargs=0.1
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew,kwargs)
         else:
             SVDOrNot=[]
@@ -460,10 +440,18 @@ def train(trainloader,net,optimizer,criterion,*kwargs):
             target= torch.cat([data.y[data.train_mask]]).to(output.device)
             loss = criterion(output[data.train_mask], target)
             if len(kwargs)==1:
-                regularization_param,L_array,fiedler_vector_array=kwargs[0]
-                for i in range(len(L_array)):
-                    regloss = regularization_param*torch.dot(fiedler_vector_array[i],torch.mv( torch.Tensor(L_array[i].todense()),fiedler_vector_array[i]))
-                    loss += regloss
+                regularization_param=kwargs[0]
+                for layer_name, parameters in net.named_parameters():
+                    if ("layers" in layer_name) and ("weight" in layer_name):
+                        Weight=parameters
+                        if Weight.dim()==3:
+                            Weight=np.squeeze(Weight)
+                        Weight=Weight.cpu().detach().numpy()
+                        G,Gu=WeightsToAdjaency(Weight)
+                        algebraic_connectivity,fiedler_vector=Compute_fiedler_vector(G)
+                        L=nx.adjacency_matrix(G)
+                        regloss = regularization_param*torch.dot(fiedler_vector,torch.mv( torch.Tensor(L.todense()),fiedler_vector))
+                        loss += regloss
             else: 
                 pass
 
