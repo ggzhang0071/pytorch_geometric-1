@@ -378,7 +378,6 @@ def train(trainloader,net,optimizer,criterion,*kwargs):
     train_loss = []
     Bath_data_list=[]
     optimizer.zero_grad()
-
     for data_list in trainloader:
         output=net(data_list)
         for data in data_list:
@@ -489,7 +488,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             raise Exception("Input wrong datatset!!")
         
         
-        FileName="{}-{}-param_{}_{}_{}_{}-monte_{}".format(dataset,modelName,params[0],params[1],params[2],params[3],Monte_iter)
+        FileName="{}-{}-param_{}_{}_{}_{}-monte_{}".format(dataset,modelName,params[0],params[1],params[2],round(params[4],4),Monte_iter)
         if Monte_iter==0:
             print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -525,15 +524,16 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4, amsgrad=False)
 
         TrainConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,regularization_coef,mark,markweights,True,model_to_save,True)
-        np.save("{}/{}Convergence/AlgebraicConectivityTrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
-        np.save("{}/{}Convergence/AlgebraicConectivityTestAcc-{}".format(savepath,dataset,FileName),TestAcc)
+        
+        ("{}/{}Convergence/AlgebraicConectivityTrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
+        #np.save("{}/{}Convergence/AlgebraicConectivityTestAcc-{}".format(savepath,dataset,FileName),TestAcc)
 
         #np.save("{}/{}Convergence/NewNetworkSizeAdjust-{}".format(savepath,dataset,FileName),NewNetworkSizeAdjust)
         
         #np.save(savepath+'TestConvergence-'+FileName,TestConvergence)
         #torch.cuda.empty_cache()
         print('dataset: {}, model name:{}, resized network size is {}, the train error of {} epoches  is:{}, test acc is {}\n'.format(dataset,modelName,NewNetworksize[0:-1],num_epochs,TrainConvergence[-1],TestAcc))
-    np.save("{}/{}Convergence/MeanTestAccs-{}".format(savepath,dataset,FileName),TestAccs.append(TestAcc))
+    np.save("{}/{}Convergence/AlgebraicConectivityMeanTestAccs-{}".format(savepath,dataset,FileName),TestAccs.append(TestAcc))
     TestAccs.append(TestAcc)
     print("The change of test error is:{}".format(TestAccs))
     print_nvidia_useage()
