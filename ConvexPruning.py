@@ -47,7 +47,7 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
     best_acc =1  # best test loss
     TrainConvergence=[]
     TestConvergence=[]
-    alpha=0.6
+    alpha=0.3
     for epoch in range(start_epoch,num_epochs):
         if epoch%40==0 or epoch==num_epochs-1:
             global SVDOrNot
@@ -55,7 +55,7 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
             """NewNetworkWeight=RetainNetworkSize(OptimizedNet,params[2])[1]
             torch.save(NewNetworkWeight[0:-1],"{}-{}.pt".format(markweights,epoch))"""
 
-        if epoch>num_epochs*alpha and epoch%10==0 and Flag==True:
+        if epoch>num_epochs*alpha and epoch%20==0 and Flag==True:
             kwargs=regularization_coef
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew,kwargs)
         else:
@@ -63,9 +63,11 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
             AddedEigenVectorPair=[torch.Tensor([[],[]]),torch.Tensor([[],[]])]
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
 
-        Acc=test(trainloader,OptimizedNet,criterionNew)          
-        print('\n Epoch: {},  tain loss: {:.4f}, train acc: {:.4f}, val acc: {:.4f}, test acc: {:.4f} \n'.format(epoch,TrainLoss[0],Acc[0],Acc[1],Acc[2]))
+        TestLoss,Acc=test(trainloader,OptimizedNet,criterionNew)          
+        print('\n Epoch: {},  tain loss: {:.4f}, Test Loss:{}; train, val and test acc: {},\n'.format(epoch,TrainLoss[0],TestLoss,Acc))
         TrainConvergence.append(statistics.mean(TrainLoss))
+        TestConvergence.append(TestLoss[-1])
+
                # save model
         if SaveModule and Acc[1] < best_acc:
                 state = {'net': OptimizedNet.module,
@@ -83,7 +85,7 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
                 save_recurrencePlots_file="../Results/RecurrencePlots/RecurrencePlots_{}_{}_BatchSize{}    \_ConCoeffi{}_epoch{}.png".format(dataset, model_name,params[0],params[1],epoch)
             save_recurrencePlots(net,save_recurrencePlots_file)"""
     del OptimizedNet 
-    return TrainConvergence, Acc[1]
+    return TrainConvergence,TestConvergence, Acc[-1]
 
 def SaveDynamicsEvolution(x):
     if len(SVDOrNot)==3:
@@ -378,6 +380,7 @@ def train(trainloader,net,optimizer,criterion,*kwargs):
     train_loss = []
     Bath_data_list=[]
     optimizer.zero_grad()
+
     for data_list in trainloader:
         output=net(data_list)
         for data in data_list:
@@ -395,6 +398,7 @@ def train(trainloader,net,optimizer,criterion,*kwargs):
                         algebraic_connectivity,fiedler_vector=Compute_fiedler_vector(G)
                         L=nx.adjacency_matrix(G)
                         regloss = regularization_coef*torch.dot(fiedler_vector,torch.mv( torch.Tensor(L.todense()),fiedler_vector))
+                        #regloss= regularization_coef*torch.norm(Weight)
                         loss += regloss
             else: 
                 pass
@@ -413,7 +417,7 @@ def train(trainloader,net,optimizer,criterion,*kwargs):
 
 def test(trainloader,net,criterion):
     net.eval()
-    accs= []
+    test_loss,accs= [],[]
     with torch.no_grad():
         for data_list in trainloader:
             output= net(data_list)
@@ -423,11 +427,13 @@ def test(trainloader,net,criterion):
                     pred= output.max(1)[1][mask]
                     acc=pred.eq(data.y[mask].to(pred.device)).sum().item()/len(data.y[mask])
                     accs.append(acc)
+                    loss = criterion(output[mask], y)
+                    test_loss.append(loss.item())
 
             #acc = torch.cat(pred.eq(data.y.to(pred.device)).sum().item()/len(data.y) for data in data_list])
 
     #print('\n Test set: Average loss: {:.4f} \n'.format(test_loss[-1]))
-    return accs
+    return test_loss,accs
 
 
 def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,optimizerName,MonteSize,savepath):
@@ -504,8 +510,8 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         mark="{}{}Convergence/DiagElement-{}".format(savepath,dataset,FileName)
         markweights="{}{}Convergence/WeightChanges-{}".format(savepath,dataset,FileName)
                      
-        PreTrainConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,trainloader,net,optimizer,criterion,NumCutoff,regularization_coef,mark,markweights,False,model_to_save,False)
-        print('dataset: {}, model name:{}, the Pre-train error of {} epoches  is:  {}, test acc is {}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreAcc))
+        PreTrainConvergence,PreTestConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,trainloader,net,optimizer,criterion,NumCutoff,regularization_coef,mark,markweights,False,model_to_save,False)
+        print('dataset: {}, model name:{}, the Pre-train error of {} epoches  is:  {}; Pre-test error is:{}; test acc is {}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreTestConvergence[-1],PreAcc))
 
         NewNetworksize=RetainNetworkSize(net,params[2])
         OptimizedNet=ChooseModel(modelName,datasetroot,NewNetworksize[0:-1])
@@ -523,16 +529,16 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         elif optimizerName =="Adam":
             optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4, amsgrad=False)
 
-        TrainConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,regularization_coef,mark,markweights,True,model_to_save,True)
+        TrainConvergence,TestConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,regularization_coef,mark,markweights,True,model_to_save,True)
         
-        ("{}/{}Convergence/AlgebraicConectivityTrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
+        np.save("{}/{}Convergence/AlgebraicConectivityTrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
+        np.save("{}/{}Convergence/AlgebraicConectivityTestConvergence-{}".format(savepath,dataset,FileName),TestConvergence)
         #np.save("{}/{}Convergence/AlgebraicConectivityTestAcc-{}".format(savepath,dataset,FileName),TestAcc)
 
         #np.save("{}/{}Convergence/NewNetworkSizeAdjust-{}".format(savepath,dataset,FileName),NewNetworkSizeAdjust)
         
-        #np.save(savepath+'TestConvergence-'+FileName,TestConvergence)
         #torch.cuda.empty_cache()
-        print('dataset: {}, model name:{}, resized network size is {}, the train error of {} epoches  is:{}, test acc is {}\n'.format(dataset,modelName,NewNetworksize[0:-1],num_epochs,TrainConvergence[-1],TestAcc))
+        print('dataset: {}, model name:{}, resized network size is {}, the train error of {} epoches  is:{},test error is {} test acc is {}\n'.format(dataset,modelName,NewNetworksize[0:-1],num_epochs,TrainConvergence[-1],TestConvergence[-1],TestAcc))
     np.save("{}/{}Convergence/AlgebraicConectivityMeanTestAccs-{}".format(savepath,dataset,FileName),TestAccs.append(TestAcc))
     TestAccs.append(TestAcc)
     print("The change of test error is:{}".format(TestAccs))

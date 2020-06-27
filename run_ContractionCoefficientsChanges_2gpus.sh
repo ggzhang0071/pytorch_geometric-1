@@ -1,23 +1,22 @@
 timestamp=`date +%Y%m%d%H%M%S`
 
 rm Logs/*.log 
-#'MUTAG' 'ENZYMES'
-for dataset in   'Cora' 'Citeseer' 'Pubmed' 'CoraFull'
+#'MUTAG' 'ENZYMES' 'Citeseer' 
+for dataset in   'Cora' 
 do
-for  modelName in  'GCN'  'ChebConvNet'
+for  modelName in  'GCN'  
 do
 for NumLayers in  1
 do
-for LR in  0.5
+for LR in 0.5
 do
-for BatchSize in   512
+for BatchSize in 512
 do
-for regularization_coef in  1 10 100
+#
+for regularization_coef in 0 2 4 6 8
 do
+    python3  ConvexPruning.py --dataset $dataset --BatchSize $BatchSize --NumLayers $NumLayers --regularization_coef $regularization_coef --ConCoeff 0.99 --num_pre_epochs 100 --num_epochs 200 --MonteSize 1 --LR $LR --modelName $modelName --PruningTimes 1 --resume False  2>&1 |tee Logs/${modelName}_${dataset}_${regularization_coef}_$timestamp.log
 
-    python3  ConvexPruning.py --dataset $dataset --BatchSize $BatchSize --NumLayers $NumLayers --regularization_coef $regularization_coef --ConCoeff 0.99 --num_pre_epochs 200 --num_epochs 200 --MonteSize 5 --LR $LR --modelName $modelName --PruningTimes 1 --resume False  2>&1 |tee Logs/${modelName}_${dataset}_${regularization_coef}_$timestamp.log
-    
-    #python3 ConvexPruning.py --dataset $dataset --BatchSize $BatchSize --NumLayers $NumLayers --WindowSize $WindowSize --ConCoeff 0.95 --num_pre_epochs 200 --num_epochs 200 --MonteSize 1 --LR $LR --modelName $modelName --PruningTimes 1 --resume False  2>&1 |tee Logs/${modelName}_${dataset}_$timestamp.log
 
 done
 done

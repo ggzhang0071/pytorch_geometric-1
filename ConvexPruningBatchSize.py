@@ -14,7 +14,7 @@ import statistics
 import torchvision
 import torchvision.transforms as transforms
 from torch_geometric.nn import GCNConv, ChebConv,global_mean_pool,SplineConv,GraphConv, AGNNConv,TopKPooling,DataParallel,GATConv
-from pyts.image import RecurrencePlot
+#from pyts.image import RecurrencePlot
 from torch_geometric.datasets import MNISTSuperpixels,Planetoid,TUDataset,PPI,Amazon,Reddit,CoraFull
 import torch_geometric.transforms as T
 from torch_geometric.nn import global_mean_pool as gap, global_max_pool as gmp
@@ -58,7 +58,7 @@ def ChooseModel(model_name,datasetroot,NetInfo):
         net=AGNNNet(datasetroot,width)  
  
     else:
-        raise Exception("model not support, Choose GCN, or SplineNet or  ChebConvNet")
+        raise Exception("model not support, Choose GCN, or SplineNet or ChebConvNet")
         
     return net
 
@@ -73,7 +73,7 @@ def TrainPart(modelName,datasetroot,start_epoch,num_epochs,trainloader,testloade
             SVDOrNot=[NumCutoff,"{}-{}".format(mark,epoch)]
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
           
-            if epoch==40:
+            """if epoch==40:
                 NewNetworksize,NewNetworkWeight=RetainNetworkSize(OptimizedNet,params[2])[0:2]
                 NetworkInfo=[NewNetworksize[0:-1],NewNetworkWeight]
                 OptimizedNet=ChooseModel(modelName,datasetroot,NetworkInfo)
@@ -90,7 +90,7 @@ def TrainPart(modelName,datasetroot,start_epoch,num_epochs,trainloader,testloade
                     NewNetworkWeight.append(U[:,:CutoffPoint]@V[:CutoffPoint,:CutoffPoint])  
                     NetworkInfo=[NewNetworksize[0:-1],NewNetworkWeight]
                     OptimizedNet=ChooseModel(modelName,datasetroot,NetworkInfo)
-                    OptimizedNet = OptimizedNet.to(device)
+                    OptimizedNet = OptimizedNet.to(device)"""
 
         else:
             SVDOrNot=[]
