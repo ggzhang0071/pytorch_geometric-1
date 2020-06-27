@@ -1,4 +1,4 @@
-import os
+import os.path as osp
 
 import torch
 import torch.nn.functional as F
@@ -7,8 +7,7 @@ from torch_geometric.data import DataListLoader
 import torch_geometric.transforms as T
 from torch_geometric.nn import SplineConv, global_mean_pool, DataParallel
 
-
-dataset = MNISTSuperpixels(root='/git/data/GraphData/MNIST', transform=T.Cartesian()).shuffle()
+dataset = MNISTSuperpixels("/git/data/GraphData/MNIST", transform=T.Cartesian()).shuffle()
 loader = DataListLoader(dataset, batch_size=1024, shuffle=True)
 
 
@@ -25,7 +24,8 @@ class Net(torch.nn.Module):
             data.num_graphs, data.batch.device))
 
         x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
-        x = F.elu(self.conv1(x, edge_index, edge_attr))
+        for i in range(3):
+            x = F.elu(self.conv1(x, edge_index, edge_attr))
         x = F.elu(self.conv2(x, edge_index, edge_attr))
         x = global_mean_pool(x, data.batch)
         x = F.elu(self.lin1(x))

@@ -5,9 +5,12 @@ import torch.nn.functional as F
 from sklearn.model_selection import StratifiedKFold
 from torch_geometric.datasets import Planetoid
 from torch_geometric.nn import DNAConv
+import os
 
 dataset = 'Cora'
-path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', dataset)
+os.chdir('../../..')
+
+path = osp.join('data', dataset)
 dataset = Planetoid(path, dataset)
 data = dataset[0]
 data.train_mask = data.val_mask = data.test_mask = None

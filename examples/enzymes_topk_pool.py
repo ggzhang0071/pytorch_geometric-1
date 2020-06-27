@@ -7,7 +7,7 @@ from torch_geometric.data import DataLoader
 from torch_geometric.nn import GraphConv, TopKPooling
 from torch_geometric.nn import global_mean_pool as gap, global_max_pool as gmp
 
-path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'ENZYMES')
+path='/git/data/GraphData/ENZYMES'
 dataset = TUDataset(path, name='ENZYMES')
 dataset = dataset.shuffle()
 n = len(dataset) // 10
@@ -36,15 +36,15 @@ class Net(torch.nn.Module):
         x, edge_index, batch = data.x, data.edge_index, data.batch
 
         x = F.relu(self.conv1(x, edge_index))
-        x, edge_index, _, batch, _ = self.pool1(x, edge_index, None, batch)
+        x, edge_index, _, batch, _, _ = self.pool1(x, edge_index, None, batch)
         x1 = torch.cat([gmp(x, batch), gap(x, batch)], dim=1)
 
         x = F.relu(self.conv2(x, edge_index))
-        x, edge_index, _, batch, _ = self.pool2(x, edge_index, None, batch)
+        x, edge_index, _, batch, _, _ = self.pool2(x, edge_index, None, batch)
         x2 = torch.cat([gmp(x, batch), gap(x, batch)], dim=1)
 
         x = F.relu(self.conv3(x, edge_index))
-        x, edge_index, _, batch, _ = self.pool3(x, edge_index, None, batch)
+        x, edge_index, _, batch, _, _ = self.pool3(x, edge_index, None, batch)
         x3 = torch.cat([gmp(x, batch), gap(x, batch)], dim=1)
 
         x = x1 + x2 + x3

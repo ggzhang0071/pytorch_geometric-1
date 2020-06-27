@@ -5,25 +5,40 @@ import torch.nn.functional as F
 from torch_geometric.datasets import Planetoid
 import torch_geometric.transforms as T
 from torch_geometric.nn import GATConv
-
+import os
+os.chdir('../../..')
 dataset = 'Cora'
-path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', dataset)
+path = osp.join('data', dataset)
 dataset = Planetoid(path, dataset, T.NormalizeFeatures())
 data = dataset[0]
 
 
-class Net(torch.nn.Module):
+class GAT(torch.nn.Module):
     def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = GATConv(dataset.num_features, 8, heads=8, dropout=0.6)
-        self.conv2 = GATConv(8 * 8, dataset.num_classes, dropout=0.6)
+        super(GAT, self).__init__()
+        self.NumLayers=len(width)
+        self.SVDOrNot=SVDOrNot
+        self.layers = nn.ModuleList()
+        self.layers.append(GATConv(datasetroot.num_features, width[0]))
+        for i in range(self.NumLayers-1):
+            layer=GATConv(width[i],width[i+1], cached=True)
+            nn.init.xavier_uniform_(layer.weight)
+            self.layers.append(layer)
+            
+        self.layers.append(GATConv(width[-1], datasetroot.num_classes))
 
-    def forward(self):
-        x = F.dropout(data.x, p=0.6, training=self.training)
-        x = F.elu(self.conv1(x, data.edge_index))
-        x = F.dropout(x, p=0.6, training=self.training)
-        x = self.conv2(x, data.edge_index)
-        return F.log_softmax(x, dim=1)
+    def forward(self,data):
+        x, edge_index = data.x, data.edge_index
+        DiagElemnt=[]
+        for layer in self.layers[:-1]:
+            SaveDynamicsEvolution(x,self.SVDOrNot)
+            x=layer(x, edge_index)
+            x =x*torch.sigmoid(x)
+        #x = F.dropout(x, training=self.training)
+        x=self.layers[-1](x,edge_index)
+        x=lobal_add_pool(x, batch)
+        x = F.log_softmax(x,dim=1)
+        return x
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

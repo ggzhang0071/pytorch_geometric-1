@@ -8,8 +8,10 @@ from torch_geometric.data import DataLoader
 from torch_geometric.utils import normalized_cut
 from torch_geometric.nn import (SplineConv, graclus, max_pool, max_pool_x,
                                 global_mean_pool)
+import os
+os.chdir('../../..')
 
-path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'MNIST')
+path = osp.join('data', 'MNIST')
 train_dataset = MNISTSuperpixels(path, True, transform=T.Cartesian())
 test_dataset = MNISTSuperpixels(path, False, transform=T.Cartesian())
 train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)

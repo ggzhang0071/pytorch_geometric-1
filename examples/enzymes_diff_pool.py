@@ -7,6 +7,8 @@ from torch_geometric.datasets import TUDataset
 import torch_geometric.transforms as T
 from torch_geometric.data import DenseDataLoader
 from torch_geometric.nn import DenseSAGEConv, dense_diff_pool
+import os
+os.chdir('../../..')
 
 max_nodes = 100
 
@@ -15,8 +17,8 @@ class MyFilter(object):
     def __call__(self, data):
         return data.num_nodes <= max_nodes
 
-
-path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'ENZYMES_d')
+dataset='ENZYMES_d'
+path = osp.join('data', dataset)
 dataset = TUDataset(
     path,
     name='ENZYMES',
