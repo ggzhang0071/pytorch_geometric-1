@@ -47,10 +47,10 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
             for file in glob.glob("{}*{}*{}*{}*{}*{}*{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[i],coefficientsThree[0],coefficientsFour[0])):
                 print(file)
                 TrainConvergence=np.load(file).tolist()
-                if max(TrainConvergence)>20:
+                if max(TrainConvergence)>20000:
                     print("{} maximum is:{}".format(file,max(TrainConvergence)))
                     os.remove(file)
-                if len(TrainConvergence)>40 and max(TrainConvergence)<=20:
+                if len(TrainConvergence)>40 and max(TrainConvergence)<=4040:
                     TrainConvergenceAll.append(TrainConvergence)
             print("coefficient of {} num is: {}".format(coefficients[i],len(TrainConvergenceAll)))            
             mu = np.array(TrainConvergenceAll).mean(axis=0)
@@ -71,7 +71,9 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
 
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
-            for file in glob.glob("{}*{}*{}*{}*{}*{}*{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[0],coefficientsThree[i],coefficientsFour[0],1)):
+            FileFolder="{}*{}*{}*{}*{}*{}*{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[0],coefficientsThree[i],coefficientsFour[0],1)
+            print(FileFolder)
+            for file in glob.glob(FileFolder):
                 print(file)
                 TrainConvergence=np.load(file).tolist()
                 if max(TrainConvergence)>20:
@@ -98,7 +100,10 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
 
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
-            for file in glob.glob("{}*{}*{}*{}*{}*{}_{}-*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[0],coefficientsThree[0],coefficientsFour[i])):
+            FileFolder="{}*{}*{}*{}*{}*{}_{}-*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[0],coefficientsThree[0],coefficientsFour[i])
+            print(FileFolder)
+
+            for file in glob.glob(FileFolder):
                 print(file)
                 TrainConvergence=np.load(file).tolist()
                 if max(TrainConvergence)>20:
@@ -108,7 +113,7 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
                     TrainConvergenceAll.append(TrainConvergence)
             print("coefficient of {} num is: {}".format(coefficients[i],len(TrainConvergenceAll)))   
             if len(TrainConvergenceAll)==0:
-                 raise Exception("Input data is wrong")
+                 raise Exception("Input file isn't exists")
             mu = np.array(TrainConvergenceAll).mean(axis=0)
             standard_dev = np.array(TrainConvergenceAll).std(axis=0)
             
@@ -127,7 +132,7 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
     
     plt.style.use('seaborn-darkgrid')  
     plt.xlabel('Epoches')
-    plt.ylabel('Loss')
+    plt.ylabel('Test error')
     plt.legend(tuple(Legend))
     plt.savefig(save_png_name,dpi=600)
 

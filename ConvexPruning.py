@@ -43,84 +43,6 @@ def ChooseModel(model_name,datasetroot,width):
         
     return net
 
-class Regularization(torch.nn.Module):
-    def __init__(self,model,weight_decay,p=2):
-        '''
-        :param model 
-        :param weight_decay:
-        :param p: 
-        '''
-        super(Regularization, self).__init__()
-        if weight_decay <= 0:
-            print("param weight_decay can not <=0")
-            exit(0)
-        self.model=model
-        self.weight_decay=weight_decay
-        self.p=p
-        self.weight_list=self.get_weight(model)
-        self.weight_info(self.weight_list)
- 
-    def to(self,device):
-        '''
-        :param device: cude or cpu
-        :return:
-        '''
-        self.device=device
-        super().to(device)
-        return self
- 
-    def forward(self, model):
-        self.weight_list=self.get_weight(model)#获得最新的权重
-        reg_loss = self.regularization_loss(self.weight_list, self.weight_decay, p=self.p)
-        return reg_loss
- 
-    def get_weight(self,model):
-        '''
-        :param model:
-        :return:
-        '''
-        weight_list = []
-        for name, param in model.named_parameters():
-            if 'weight' in name:
-                weight = (name, param)
-                weight_list.append(weight)
-        return weight_list
- 
-    def regularization_loss(self,weight_list, weight_decay, p=2):
-        '''
-        :param weight_list:
-        :param p: 
-        :param weight_decay:
-        :return:
-        '''
-        # weight_decay=Variable(torch.FloatTensor([weight_decay]).to(self.device),requires_grad=True)
-        # reg_loss=Variable(torch.FloatTensor([0.]).to(self.device),requires_grad=True)
-        # weight_decay=torch.FloatTensor([weight_decay]).to(self.device)
-        # reg_loss=torch.FloatTensor([0.]).to(self.device)
-        reg_loss=0
-        for name, parameters in weight_list:
-            Weight=parameters
-            if Weight.dim()==3:
-                Weight=np.squeeze(Weight)
-            Weight=Weight.cpu().detach().numpy()
-            G,Gu=WeightsToAdjaency(Weight)
-            algebraic_connectivity,fiedler_vector=Compute_fiedler_vector(G)
-            L=nx.adjacency_matrix(G)
-            regloss = weight_decay*torch.dot(fiedler_vector,torch.mv( torch.Tensor(L.todense()),fiedler_vector))
-            reg_loss = reg_loss + regloss
- 
-        reg_loss=weight_decay*reg_loss
-        return reg_loss
- 
-    def weight_info(self,weight_list):
-        '''
-        :param weight_list:
-        :return:
-        '''
-        print("---------------regularization weight---------------")
-        for name ,w in weight_list:
-            print(name)
-        print("---------------------------------------------------")
 
 def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,regularization_coef,StartRegurlarionCoeffi,mark,markweights,SaveModule,model_to_save,Flag):
     best_acc =1  # best test loss
@@ -134,16 +56,15 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
             torch.save(NewNetworkWeight[0:-1],"{}-{}.pt".format(markweights,epoch))"""
 
         if epoch>num_epochs*StartRegurlarionCoeffi and epoch%20==0 and Flag==True:
-            kwargs=regularization_coef
             optimizerNew = SGD(OptimizedNet.parameters(), lr=params[3],momentum=0.9, weight_decay=regularization_coef)
-            TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew,kwargs)
+            TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
         else:
             SVDOrNot=[]
             AddedEigenVectorPair=[torch.Tensor([[],[]]),torch.Tensor([[],[]])]
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
 
         TestLoss,Acc=test(trainloader,OptimizedNet,criterionNew)          
-        print('\n Epoch: {},  tain loss: {:.4f}, Test Loss:{}; train, val and test acc: {},\n'.format(epoch,TrainLoss[0],TestLoss,Acc))
+        print('\n Epoch: {},  train loss: {:.4f}, Test Loss:{}; train, val and test acc: {},\n'.format(epoch,TrainLoss[0],TestLoss,Acc))
         TrainConvergence.append(statistics.mean(TrainLoss))
         TestConvergence.append(TestLoss[-1])
 
@@ -453,7 +374,7 @@ def RetainNetworkSize(net,ConCoeff):
     return NewNetworksize
 
 
-def train(trainloader,net,optimizer,criterion,*kwargs):
+def train(trainloader,net,optimizer,criterion):
     net.train()
     train_loss = []
     Bath_data_list=[]
@@ -464,12 +385,7 @@ def train(trainloader,net,optimizer,criterion,*kwargs):
         for data in data_list:
             target= torch.cat([data.y[data.train_mask]]).to(output.device)
             loss = criterion(output[data.train_mask], target)
-            if len(kwargs)==1:
-                regularization_coef=kwargs[0]
-                reg_loss=Regularization(net,regularization_coef, p=2).to('cuda')
-                loss = loss + reg_loss(net)
-            else: 
-                pass
+           
         loss.backward()
         train_loss.append(loss.item())  
         optimizer.step()
