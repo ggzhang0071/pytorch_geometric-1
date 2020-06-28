@@ -25,7 +25,7 @@ import os,sys
 global resume
 import pickle
 import networkx as nx
-
+from sgd import SGD
 
 def ChooseModel(model_name,datasetroot,width):
     if model_name=="GCN":  
@@ -43,11 +43,89 @@ def ChooseModel(model_name,datasetroot,width):
         
     return net
 
-def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,regularization_coef,mark,markweights,SaveModule,model_to_save,Flag):
+class Regularization(torch.nn.Module):
+    def __init__(self,model,weight_decay,p=2):
+        '''
+        :param model 
+        :param weight_decay:
+        :param p: 
+        '''
+        super(Regularization, self).__init__()
+        if weight_decay <= 0:
+            print("param weight_decay can not <=0")
+            exit(0)
+        self.model=model
+        self.weight_decay=weight_decay
+        self.p=p
+        self.weight_list=self.get_weight(model)
+        self.weight_info(self.weight_list)
+ 
+    def to(self,device):
+        '''
+        :param device: cude or cpu
+        :return:
+        '''
+        self.device=device
+        super().to(device)
+        return self
+ 
+    def forward(self, model):
+        self.weight_list=self.get_weight(model)#获得最新的权重
+        reg_loss = self.regularization_loss(self.weight_list, self.weight_decay, p=self.p)
+        return reg_loss
+ 
+    def get_weight(self,model):
+        '''
+        :param model:
+        :return:
+        '''
+        weight_list = []
+        for name, param in model.named_parameters():
+            if 'weight' in name:
+                weight = (name, param)
+                weight_list.append(weight)
+        return weight_list
+ 
+    def regularization_loss(self,weight_list, weight_decay, p=2):
+        '''
+        :param weight_list:
+        :param p: 
+        :param weight_decay:
+        :return:
+        '''
+        # weight_decay=Variable(torch.FloatTensor([weight_decay]).to(self.device),requires_grad=True)
+        # reg_loss=Variable(torch.FloatTensor([0.]).to(self.device),requires_grad=True)
+        # weight_decay=torch.FloatTensor([weight_decay]).to(self.device)
+        # reg_loss=torch.FloatTensor([0.]).to(self.device)
+        reg_loss=0
+        for name, parameters in weight_list:
+            Weight=parameters
+            if Weight.dim()==3:
+                Weight=np.squeeze(Weight)
+            Weight=Weight.cpu().detach().numpy()
+            G,Gu=WeightsToAdjaency(Weight)
+            algebraic_connectivity,fiedler_vector=Compute_fiedler_vector(G)
+            L=nx.adjacency_matrix(G)
+            regloss = weight_decay*torch.dot(fiedler_vector,torch.mv( torch.Tensor(L.todense()),fiedler_vector))
+            reg_loss = reg_loss + regloss
+ 
+        reg_loss=weight_decay*reg_loss
+        return reg_loss
+ 
+    def weight_info(self,weight_list):
+        '''
+        :param weight_list:
+        :return:
+        '''
+        print("---------------regularization weight---------------")
+        for name ,w in weight_list:
+            print(name)
+        print("---------------------------------------------------")
+
+def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,regularization_coef,StartRegurlarionCoeffi,mark,markweights,SaveModule,model_to_save,Flag):
     best_acc =1  # best test loss
     TrainConvergence=[]
     TestConvergence=[]
-    alpha=0.3
     for epoch in range(start_epoch,num_epochs):
         if epoch%40==0 or epoch==num_epochs-1:
             global SVDOrNot
@@ -55,8 +133,9 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
             """NewNetworkWeight=RetainNetworkSize(OptimizedNet,params[2])[1]
             torch.save(NewNetworkWeight[0:-1],"{}-{}.pt".format(markweights,epoch))"""
 
-        if epoch>num_epochs*alpha and epoch%20==0 and Flag==True:
+        if epoch>num_epochs*StartRegurlarionCoeffi and epoch%20==0 and Flag==True:
             kwargs=regularization_coef
+            optimizerNew = SGD(OptimizedNet.parameters(), lr=params[3],momentum=0.9, weight_decay=regularization_coef)
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew,kwargs)
         else:
             SVDOrNot=[]
@@ -374,7 +453,6 @@ def RetainNetworkSize(net,ConCoeff):
     return NewNetworksize
 
 
-
 def train(trainloader,net,optimizer,criterion,*kwargs):
     net.train()
     train_loss = []
@@ -388,21 +466,10 @@ def train(trainloader,net,optimizer,criterion,*kwargs):
             loss = criterion(output[data.train_mask], target)
             if len(kwargs)==1:
                 regularization_coef=kwargs[0]
-                for layer_name, parameters in net.named_parameters():
-                    if ("layers" in layer_name) and ("weight" in layer_name):
-                        Weight=parameters
-                        if Weight.dim()==3:
-                            Weight=np.squeeze(Weight)
-                        Weight=Weight.cpu().detach().numpy()
-                        G,Gu=WeightsToAdjaency(Weight)
-                        algebraic_connectivity,fiedler_vector=Compute_fiedler_vector(G)
-                        L=nx.adjacency_matrix(G)
-                        regloss = regularization_coef*torch.dot(fiedler_vector,torch.mv( torch.Tensor(L.todense()),fiedler_vector))
-                        #regloss= regularization_coef*torch.norm(Weight)
-                        loss += regloss
+                reg_loss=Regularization(net,regularization_coef, p=2).to('cuda')
+                loss = loss + reg_loss(net)
             else: 
                 pass
-
         loss.backward()
         train_loss.append(loss.item())  
         optimizer.step()
@@ -437,8 +504,9 @@ def test(trainloader,net,criterion):
 
 
 def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,optimizerName,MonteSize,savepath):
-    Batch_size=int(params[0]) 
+    Batch_size=int(params[0])
     regularization_coef=params[4]
+    StartRegurlarionCoeffi=params[5]
     root='/git/data/GraphData/'+dataset
     TestAccs=[]
     for Monte_iter in range(MonteSize):
@@ -494,11 +562,11 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             raise Exception("Input wrong datatset!!")
         
         
-        FileName="{}-{}-param_{}_{}_{}_{}-monte_{}".format(dataset,modelName,params[0],params[1],params[2],round(params[4],4),Monte_iter)
+        FileName="{}-{}-param_{}_{}_{}_{}-monte_{}".format(dataset,modelName,params[0],params[1],params[5],round(params[4],4),Monte_iter)
         if Monte_iter==0:
             print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            criterion = nn.CrossEntropyLoss()
+            criterion = nn.CrossEntropyLoss().to(device)
             optimizer =optim.Adam(net.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
 
         net = DataParallel(net)
@@ -510,8 +578,8 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         mark="{}{}Convergence/DiagElement-{}".format(savepath,dataset,FileName)
         markweights="{}{}Convergence/WeightChanges-{}".format(savepath,dataset,FileName)
                      
-        PreTrainConvergence,PreTestConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,trainloader,net,optimizer,criterion,NumCutoff,regularization_coef,mark,markweights,False,model_to_save,False)
-        print('dataset: {}, model name:{}, the Pre-train error of {} epoches  is:  {}; Pre-test error is:{}; test acc is {}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreTestConvergence[-1],PreAcc))
+        PreTrainConvergence,PreTestConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,trainloader,net,optimizer,criterion,NumCutoff,regularization_coef,StartRegurlarionCoeffi,mark,markweights,False,model_to_save,False)
+        print('dataset: {}, model name:{}, epoches:{},Pre-train error:{}; Pre-test error:{}; test acc:{}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreTestConvergence[-1],PreAcc))
 
         NewNetworksize=RetainNetworkSize(net,params[2])
         OptimizedNet=ChooseModel(modelName,datasetroot,NewNetworksize[0:-1])
@@ -523,14 +591,13 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         OptimizedNet = DataParallel(OptimizedNet)
         OptimizedNet = OptimizedNet.to(device)
         cudnn.benchmark = True
-        criterionNew = nn.CrossEntropyLoss()
+        criterionNew = nn.CrossEntropyLoss().to(device)
         if optimizerName =="SGD":
-            optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], momentum=0.9, weight_decay=5e-4)
+            optimizerNew = SGD(OptimizedNet.parameters(), lr=params[3],momentum=0.9, weight_decay=0)
         elif optimizerName =="Adam":
             optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4, amsgrad=False)
 
-        TrainConvergence,TestConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,regularization_coef,mark,markweights,True,model_to_save,True)
-        
+        TrainConvergence,TestConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,regularization_coef,StartRegurlarionCoeffi,mark,markweights,True,model_to_save,True)
         np.save("{}/{}Convergence/AlgebraicConectivityTrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
         np.save("{}/{}Convergence/AlgebraicConectivityTestConvergence-{}".format(savepath,dataset,FileName),TestConvergence)
         #np.save("{}/{}Convergence/AlgebraicConectivityTestAcc-{}".format(savepath,dataset,FileName),TestAcc)
@@ -552,7 +619,8 @@ if __name__=="__main__":
     parser.add_argument('--ConCoeff', default=0.99, type=float, help='contraction coefficients')
     parser.add_argument('--NumCutoff', default=5, type=float, help='contraction coefficients')
     parser.add_argument('--WindowSize', default=3, type=float, help='Window size for network correction')
-    parser.add_argument('--regularization_coef',default=0.01,type=float, help='regularization coefficient')
+    parser.add_argument('--regularization_coef',default=1,type=float, help='regularization coefficient')
+    parser.add_argument('--StartRegurlarionCoeffi',default=0.3,type=float, help='Start regularization coefficient')
 
     parser.add_argument('--rho', type=float, default=1e-2, metavar='R',
                         help='cardinality weight (default: 1e-2)')
@@ -581,7 +649,7 @@ if __name__=="__main__":
     resume=args.resume
     save_recurrence_plots=args.save_recurrence_plots
     #params=[args.BatchSize,args.NumLayers,args.args.ConCoeff,args.CutoffCoeff]
-    params=[args.BatchSize,args.NumLayers,args.ConCoeff,args.LR,args.regularization_coef]
+    params=[args.BatchSize,args.NumLayers,args.ConCoeff,args.LR,args.regularization_coef,args.StartRegurlarionCoeffi]
     global modelName
     modelName=args.modelName
     global dataset
