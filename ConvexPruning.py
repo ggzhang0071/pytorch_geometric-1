@@ -64,7 +64,7 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
 
         TestLoss,Acc=test(trainloader,OptimizedNet,criterionNew)          
-        print('\n Epoch: {},  train loss: {:.4f}, Test Loss:{}; train, val and test acc: {},\n'.format(epoch,TrainLoss[0],TestLoss,Acc))
+        print('\n Epoch: {},  Train loss: {:.4f}, Test Loss:{}; Train, val and test acc: {},\n'.format(epoch,TrainLoss[0],TestLoss,Acc))
         TrainConvergence.append(statistics.mean(TrainLoss))
         TestConvergence.append(TestLoss[-1])
         TestAcc=Acc[-1]
@@ -90,10 +90,11 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
 
 def ModelAndSave(model_to_save,train_dataset,params,num_epochs): 
     if resume=="True" and os.path.exists(model_to_save):
-        [net,TrainConvergence,TestConvergence,Acc,start_epoch]=ResumeModel(model_to_save)
+        [net,TrainConvergence,TestConvergence,Acc]=ResumeModel(model_to_save)
+        start_epoch=len(TrainConvergence)
         if start_epoch>=num_epochs-1:
             pass
-        return ([net],TrainConvergence,TestConvergence,Acc,start_epoch)
+        return ([net],TrainConvergence,TestConvergence,Acc)
 
     else:
         width=ContractionLayerCoefficients(train_dataset.num_features,*params[1:3])
@@ -108,7 +109,7 @@ def ResumeModel(model_to_save):
     TrainConvergence = checkpoint['TrainConvergence']
     TestConvergence = checkpoint['TestConvergence']
     Acc = checkpoint['TestAcc']
-    return net,TrainConvergence,TestConvergence,Acc,start_epoch
+    return net,TrainConvergence,TestConvergence,Acc
 
 def SaveDynamicsEvolution(x):
     if len(SVDOrNot)==3:
@@ -437,10 +438,10 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             model_to_save='./checkpoint/{}-{}-param_{}_{}_{}_{}-ckpt.pth'.format(dataset,modelName,params[0],params[1],params[5],params[4])
             ModelLoadResults=ModelAndSave(model_to_save,datasetroot,params,num_epochs)
-            if len(ModelLoadResults)==5:
+            if len(ModelLoadResults)==4:
                 netList,TrainConvergence,TestConvergence,Acc=ModelLoadResults
                 net=netList[0]
-                start_epoch=TrainConvergence
+                start_epoch=len(TrainConvergence)
             elif len(ModelLoadResults)==1:
                 net=ModelLoadResults[0]
                 
@@ -479,7 +480,6 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
             [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params)
 
-
         elif dataset=='CIFAR10':
             pass
         else:
@@ -495,8 +495,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
 
         net = DataParallel(net)
         net = net.to(device)
-      
-
+    
                 #cudnn.benchmark = True
         logging('dataset:{}, Batch size: {}, Number of layers:{} ConCoeff: {}, LR:{}, MonteSize:{}'.format(dataset, params[0], params[1],params[2],params[3],Monte_iter))
         mark="{}{}Convergence/DiagElement-{}".format(savepath,dataset,FileName)
