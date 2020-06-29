@@ -74,7 +74,6 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
                          'TrainConvergence': TrainConvergence,
                         'TestConvergence': TestConvergence,
                         'TestAcc': TestAcc,
-                        'epoch': num_epochs,
                        }
                 if not os.path.isdir('checkpoint'):
                     os.mkdir('checkpoint')
@@ -109,7 +108,6 @@ def ResumeModel(model_to_save):
     TrainConvergence = checkpoint['TrainConvergence']
     TestConvergence = checkpoint['TestConvergence']
     Acc = checkpoint['TestAcc']
-    start_epoch = checkpoint['epoch']
     return net,TrainConvergence,TestConvergence,Acc,start_epoch
 
 def SaveDynamicsEvolution(x):
@@ -440,8 +438,9 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             model_to_save='./checkpoint/{}-{}-param_{}_{}_{}_{}-ckpt.pth'.format(dataset,modelName,params[0],params[1],params[5],params[4])
             ModelLoadResults=ModelAndSave(model_to_save,datasetroot,params,num_epochs)
             if len(ModelLoadResults)==5:
-                netList,TrainConvergence,TestConvergence,Acc,start_epoch=ModelLoadResults
+                netList,TrainConvergence,TestConvergence,Acc=ModelLoadResults
                 net=netList[0]
+                start_epoch=TrainConvergence
             elif len(ModelLoadResults)==1:
                 net=ModelLoadResults[0]
                 
