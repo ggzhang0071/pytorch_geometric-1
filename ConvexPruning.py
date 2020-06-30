@@ -91,7 +91,6 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
 def ModelAndSave(model_to_save,train_dataset,params,num_epochs): 
     if resume=="True" and os.path.exists(model_to_save):
         [net,TrainConvergence,TestConvergence,Acc]=ResumeModel(model_to_save)
-        start_epoch=len(TrainConvergence)
         if start_epoch>=num_epochs-1:
             pass
         return ([net],TrainConvergence,TestConvergence,Acc)
