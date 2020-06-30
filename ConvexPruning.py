@@ -55,6 +55,7 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
             torch.save(NewNetworkWeight[0:-1],"{}-{}.pt".format(markweights,epoch))"""
 
         if epoch>num_epochs*StartRegurlarionCoeffi and epoch%20==0 and TrainFlag==True:
+            optimizerNew = SGD(OptimizedNet.parameters(), lr=params[3],momentum=0.9, weight_decay=regularization_coef)
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
         else:
             SVDOrNot=[]

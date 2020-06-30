@@ -1,5 +1,4 @@
 import networkx as nx
-from community import community_louvain
 import numpy as np
 import matplotlib.pyplot as plt
 from random import randint,random
@@ -10,7 +9,6 @@ import pickle
 import scipy.sparse as sparse
 from collections import Counter
 from matplotlib.ticker import MaxNLocator
-from minisom import MiniSom    
 from sklearn.cluster import DBSCAN,SpectralClustering
 import cupy as cp
 from torch.utils.dlpack import from_dlpack, to_dlpack
