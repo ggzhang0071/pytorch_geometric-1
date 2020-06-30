@@ -106,10 +106,9 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
             for file in glob.glob(FileFolder):
                 print(file)
                 N=200
-                TrainConvergence=np.array([0]*N).astype("float64")
-                TrainConvergenceTmp=np.load(file)
-                TrainConvergence[N-len(TrainConvergenceTmp):N]+=TrainConvergenceTmp
-                TrainConvergence=TrainConvergence.tolist()
+                TrainConvergenceTmp=np.load(file).tolist()
+                TrainConvergence=[0]*(N-len(TrainConvergenceTmp))
+                TrainConvergence+=TrainConvergenceTmp
                 if max(TrainConvergence)>20:
                     print("{} maximum is:{}".format(file,max(TrainConvergence)))
                     os.remove(file)
