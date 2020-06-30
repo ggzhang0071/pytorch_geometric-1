@@ -102,7 +102,6 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
             TrainConvergenceAll=[]
             FileFolder="{}*{}*{}*{}*{}*{}_{}-*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[0],coefficientsThree[0],coefficientsFour[i])
             print(FileFolder)
-
             for file in glob.glob(FileFolder):
                 print(file)
                 N=200
@@ -119,6 +118,8 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
                  raise Exception("Input file isn't exists")
             mu = np.array(TrainConvergenceAll).mean(axis=0)
             standard_dev = np.array(TrainConvergenceAll).std(axis=0)
+            saveMeanStd="{}MeanAndStd-{}-{}-{}-{}-{}-{}.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[0],coefficientsThree[0],coefficientsFour[i])
+            np.save(saveMeanStd,[mu,standard_dev])
             
             if i<parts:
                 plt.plot(x,mu[start_plot:start_plot+epochs], lw=1.5)
