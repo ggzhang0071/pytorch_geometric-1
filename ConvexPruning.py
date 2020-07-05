@@ -40,16 +40,14 @@ def ChooseModel(model_name,datasetroot,width):
         net=topk_pool_Net(datasetroot,width)  
     else:
         raise Exception("model not support, Choose GCN, or SplineNet or  ChebConvNet")
-        
     return net
 
 
-def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,regularization_coef,StartRegurlarionCoeffi,mark,markweights,SaveModule,model_to_save,TrainFlag):
+def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,regularization_coef,StartRegurlarionCoeffi,mark,markweights,model_to_save,TrainFlag):
     best_acc =1  # best test loss
-    TrainConvergence=[]
-    TestConvergence=[]
+    TrainConvergence,TestConvergence=[],[]
     for epoch in range(start_epoch,num_epochs):
-        if epoch%40==0 or epoch==num_epochs-1:
+        if epoch%40==0 or epoch==num_epochs-1 and TrainFlag==False:
             global SVDOrNot
             SVDOrNot=[NumCutoff,"{}-{}".format(mark,epoch)]
             """NewNetworkWeight=RetainNetworkSize(OptimizedNet,params[2])[1]
@@ -61,16 +59,18 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
         else:
             SVDOrNot=[]
             AddedEigenVectorPair=[torch.Tensor([[],[]]),torch.Tensor([[],[]])]
+            optimizerNew = SGD(OptimizedNet.parameters(), lr=params[3],momentum=0.9, weight_decay=0)
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
 
         TestLoss,Acc=test(trainloader,OptimizedNet,criterionNew)          
-        print('\n Epoch: {},  Train loss: {:.4f}, Test Loss:{}; Train, val and test acc: {},\n'.format(epoch,TrainLoss[0],TestLoss,Acc))
+        print('\n Epoch: {},  Train, Val, Test Loss:{}; Train, Val and Test acc: {},\n'.format(epoch,TestLoss,Acc))
         TrainConvergence.append(statistics.mean(TrainLoss))
         TestConvergence.append(TestLoss[-1])
         TestAcc=Acc[-1]
                # save model
-        if SaveModule and TestAcc < best_acc and TrainFlag==True:
-                state = {'net': OptimizedNet.module,
+        if TestAcc < best_acc and TrainFlag==False:
+                state = {'net_state_dict': OptimizedNet.state_dict(),
+                         'optimizer_state_dict': optimizerNew.state_dict(),
                          'TrainConvergence': TrainConvergence,
                         'TestConvergence': TestConvergence,
                         'TestAcc': TestAcc,
@@ -87,28 +87,6 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
     del OptimizedNet 
     return TrainConvergence,TestConvergence, TestAcc
 
-
-def ModelAndSave(model_to_save,train_dataset,params,num_epochs): 
-    if resume=="True" and os.path.exists(model_to_save):
-        [net,TrainConvergence,TestConvergence,Acc]=ResumeModel(model_to_save)
-        if start_epoch>=num_epochs-1:
-            pass
-        return ([net],TrainConvergence,TestConvergence,Acc)
-
-    else:
-        width=ContractionLayerCoefficients(train_dataset.num_features,*params[1:3])
-        net =ChooseModel(modelName,train_dataset,width)
-        return [net]
-
-def ResumeModel(model_to_save):
-    # Load checkpoint.
-    #print('==> Resuming from checkpoint..')
-    checkpoint = torch.load(model_to_save)
-    net = checkpoint['net']
-    TrainConvergence = checkpoint['TrainConvergence']
-    TestConvergence = checkpoint['TestConvergence']
-    Acc = checkpoint['TestAcc']
-    return net,TrainConvergence,TestConvergence,Acc
 
 def SaveDynamicsEvolution(x):
     if len(SVDOrNot)==3:
@@ -374,6 +352,16 @@ def RetainNetworkSize(net,ConCoeff):
             #print("Original size is {},After SVD is {}".format(Weight.shape[1],CutoffPoint))
     return NewNetworksize
 
+def ResumeModel(net,optimizer,model_to_save):
+    # Load checkpoint.
+    #print('==> Resuming from checkpoint..')
+    checkpoint = torch.load(model_to_save)
+    net.load_state_dict(checkpoint['net_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    TrainConvergence = checkpoint['TrainConvergence']
+    TestConvergence = checkpoint['TestConvergence']
+    Acc = checkpoint['TestAcc']
+    return net,optimizer,TrainConvergence,TestConvergence,Acc
 
 def train(trainloader,net,optimizer,criterion):
     net.train()
@@ -428,79 +416,72 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
     TestAccs=[]
     for Monte_iter in range(MonteSize):
         # Data
-        start_epoch = 0  # start from epoch 0 or last checkpoint epoch         
         NewNetworkSizeAdjust=[]
         WeightsDynamicsEvolution=[]
         # model 
         if dataset=='Cora' or dataset =='Citeseer' or dataset =='Pubmed':
             datasetroot= Planetoid(root=root, name=dataset, transform =T.NormalizeFeatures()).shuffle()        
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
-            model_to_save='./checkpoint/{}-{}-param_{}_{}_{}_{}-ckpt.pth'.format(dataset,modelName,params[0],params[1],params[5],params[4])
-            ModelLoadResults=ModelAndSave(model_to_save,datasetroot,params,num_epochs)
-            if len(ModelLoadResults)==4:
-                netList,TrainConvergence,TestConvergence,Acc=ModelLoadResults
-                net=netList[0]
-                start_epoch=len(TrainConvergence)
-            elif len(ModelLoadResults)==1:
-                net=ModelLoadResults[0]
+
                 
         elif dataset =="CoraFull":
             datasetroot = CoraFull(root=root,transform =T.NormalizeFeatures()).shuffle()
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
-            [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,num_epochs)
             
         elif dataset=='ENZYMES' or dataset=='MUTAG':
             datasetroot=TUDataset(root,name=dataset,use_node_attr=True)
             trainloader = DataLoader(datasetroot, batch_size=Batch_size, shuffle=True)
-            [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,num_epochs)
                   
         elif dataset =="PPI":
             train_dataset = PPI(root, split='train')
             test_dataset = PPI(root, split='test')
             trainloader = DataListLoader(train_dataset, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(test_dataset, batch_size=100, shuffle=False)
-            [net,model_to_save]=ModelAndSave(dataset,modelName,train_dataset,params,num_epochs)
             
         elif dataset =="Reddit":
             datasetroot=Reddit(root)   
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=2, shuffle=False)
-            [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params,num_epochs)
 
         elif dataset=="Amazon":
             datasetroot=Amazon(root, "Photo", transform=None, pre_transform=None)
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
-            [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params)
 
         elif dataset=='MNIST':
             datasetroot = MNISTSuperpixels(root=root, transform=T.Cartesian())
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             testloader = DataListLoader(datasetroot, batch_size=100, shuffle=False)
-            [net,model_to_save]=ModelAndSave(dataset,modelName,datasetroot,params)
 
         elif dataset=='CIFAR10':
             pass
         else:
             raise Exception("Input wrong datatset!!")
         
-        
+        width=ContractionLayerCoefficients(datasetroot.num_features,*params[1:3])
+        net =ChooseModel(modelName,datasetroot,width)    
         FileName="{}-{}-param_{}_{}_{}_{}-monte_{}".format(dataset,modelName,params[0],params[1],params[5],round(params[4],4),Monte_iter)
-        if Monte_iter==0:
-            print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            criterion = nn.CrossEntropyLoss().to(device)
-            optimizer =optim.Adam(net.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
-
+        print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        criterion = nn.CrossEntropyLoss().to(device)
         net = DataParallel(net)
         net = net.to(device)
+        optimizer = SGD(net.parameters(), lr=params[3],momentum=0.9, weight_decay=0)
+
+        model_to_save='./checkpoint/{}-{}-param_{}_{}_{}_{}-ckpt.pth'.format(dataset,modelName,params[0],params[1],params[5],params[4])
+        if resume=="True" and os.path.exists(model_to_save):
+            [net,optimizer,TrainConvergence,TestConvergence,Acc]=ResumeModel(net,optimizer,model_to_save)
+            start_epoch=len(TrainConvergence)
+        else:
+            start_epoch = 0  # start from epoch 0 or last checkpoint epoch         
+
     
                 #cudnn.benchmark = True
         logging('dataset:{}, Batch size: {}, Number of layers:{} ConCoeff: {}, LR:{}, MonteSize:{}'.format(dataset, params[0], params[1],params[2],params[3],Monte_iter))
         mark="{}{}Convergence/DiagElement-{}".format(savepath,dataset,FileName)
         markweights="{}{}Convergence/WeightChanges-{}".format(savepath,dataset,FileName)
                      
-        PreTrainConvergence,PreTestConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,trainloader,net,optimizer,criterion,NumCutoff,regularization_coef,StartRegurlarionCoeffi,mark,markweights,False,model_to_save,False)
+        PreTrainConvergence,PreTestConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,                        trainloader,net,optimizer,criterion,NumCutoff,regularization_coef,StartRegurlarionCoeffi,mark,markweights,model_to_save,False)
         print('dataset: {}, model name:{}, epoches:{},Pre-train error:{}; Pre-test error:{}; test acc:{}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreTestConvergence[-1],PreAcc))
 
         NewNetworksize=RetainNetworkSize(net,params[2])
@@ -509,29 +490,29 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         NewNetworkSizeAdjust.append(NewNetworksize[0:-1])
         print(NewNetworkSizeAdjust)
 
-        #OptimizedNet.apply(init_weights)
+            #OptimizedNet.apply(init_weights)
+
         OptimizedNet = DataParallel(OptimizedNet)
         OptimizedNet = OptimizedNet.to(device)
+        optimizerNew= SGD(net.parameters(), lr=params[3],momentum=0.9, weight_decay=0)
+
         cudnn.benchmark = True
         criterionNew = nn.CrossEntropyLoss().to(device)
-        if optimizerName =="SGD":
-            optimizerNew = SGD(OptimizedNet.parameters(), lr=params[3],momentum=0.9, weight_decay=0)
-        elif optimizerName =="Adam":
-            optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4, amsgrad=False)
-
-        TrainConvergence,TestConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,regularization_coef,StartRegurlarionCoeffi,mark,markweights,True,model_to_save,True)
+        # Begin Pre training
+        TrainConvergence,TestConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,
+                                                                   NumCutoff,regularization_coef,StartRegurlarionCoeffi,mark,markweights,model_to_save,True)
         np.save("{}/{}Convergence/AlgebraicConectivityTrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
         np.save("{}/{}Convergence/AlgebraicConectivityTestConvergence-{}".format(savepath,dataset,FileName),TestConvergence)
         #np.save("{}/{}Convergence/AlgebraicConectivityTestAcc-{}".format(savepath,dataset,FileName),TestAcc)
 
         #np.save("{}/{}Convergence/NewNetworkSizeAdjust-{}".format(savepath,dataset,FileName),NewNetworkSizeAdjust)
-        
+
         #torch.cuda.empty_cache()
         print('dataset: {}, model name:{}, resized network size: {}, the train error: {},test error: {}, test acc:{}\n'.format(dataset,modelName,NewNetworksize[0:-1],num_epochs,TrainConvergence[-1],TestConvergence[-1],TestAcc))
-    np.save("{}/{}Convergence/AlgebraicConectivityMeanTestAccs-{}".format(savepath,dataset,FileName),TestAccs.append(TestAcc))
-    TestAccs.append(TestAcc)
-    print("The change of test error is:{}".format(TestAccs))
-    print_nvidia_useage()
+        np.save("{}/{}Convergence/AlgebraicConectivityMeanTestAccs-{}".format(savepath,dataset,FileName),TestAccs.append(TestAcc))
+        TestAccs.append(TestAcc)
+        print("The change of test error is:{}".format(TestAccs))
+        print_nvidia_useage()
 
 if __name__=="__main__":   
     parser = argparse.ArgumentParser(description='PyTorch Training')
