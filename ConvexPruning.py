@@ -17,7 +17,7 @@ from torch_geometric.nn import GCNConv, ChebConv,global_mean_pool,SplineConv,Gra
 #from pyts.image import RecurrencePlot
 from torch_geometric.datasets import MNISTSuperpixels,Planetoid,TUDataset,PPI,Amazon,Reddit,CoraFull
 import torch_geometric.transforms as T
-from SpectralAnalysis import WeightsToAdjaency,Fiedler_vector_cluster,Compute_fiedler_vector
+from SpectralAnalysis import WeightCorrection
 from torch_geometric.nn import global_mean_pool as gap, global_max_pool as gmp
 import numpy as np
 import argparse
@@ -25,7 +25,7 @@ import os,sys
 global resume
 import pickle
 import networkx as nx
-from sgd import SGD
+
 
 def ChooseModel(model_name,datasetroot,width):
     if model_name=="GCN":  
@@ -54,12 +54,12 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
             torch.save(NewNetworkWeight[0:-1],"{}-{}.pt".format(markweights,epoch))"""
 
         if epoch>num_epochs*StartRegurlarionCoeffi and epoch%20==0 and TrainFlag==True:
-            optimizerNew = SGD(OptimizedNet.parameters(), lr=params[3],momentum=0.9, weight_decay=regularization_coef)
-            TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
+            classiResultsFiles="Results/PartitionResults/{}-{}-oneClassNodeEpoch_{}.pkl".format(dataset,modelName,str(epoch))
+            GraphResultsFiles="Results/PartitionResults/{}-{}-GraphEpoch_{}.pkl".format(dataset,modelName,str(epoch))
+            OptimizedNet=WeightCorrection(classiResultsFiles,GraphResultsFiles,OptimizedNet)
         else:
             SVDOrNot=[]
             AddedEigenVectorPair=[torch.Tensor([[],[]]),torch.Tensor([[],[]])]
-            optimizerNew = SGD(OptimizedNet.parameters(), lr=params[3],momentum=0.9, weight_decay=0)
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
 
         TestLoss,Acc=test(trainloader,OptimizedNet,criterionNew)          
@@ -466,7 +466,8 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         criterion = nn.CrossEntropyLoss().to(device)
         net = DataParallel(net)
         net = net.to(device)
-        optimizer = SGD(net.parameters(), lr=params[3],momentum=0.9, weight_decay=0)
+        optimizer = getattr(optim,optimizerName)(net.parameters(), lr=params[3], momentum=0.9, weight_decay=5e-4)
+
 
         model_to_save='./checkpoint/{}-{}-param_{}_{}_{}_{}-ckpt.pth'.format(dataset,modelName,params[0],params[1],params[5],params[4])
         if resume=="True" and os.path.exists(model_to_save):
@@ -482,7 +483,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         markweights="{}{}Convergence/WeightChanges-{}".format(savepath,dataset,FileName)
                      
         PreTrainConvergence,PreTestConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,                        trainloader,net,optimizer,criterion,NumCutoff,regularization_coef,StartRegurlarionCoeffi,mark,markweights,model_to_save,False)
-        print('dataset: {}, model name:{}, epoches:{},Pre-train error:{}; Pre-test error:{}; test acc:{}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreTestConvergence[-1],PreAcc))
+        print('dataset: {}, model name:{}, epoch:{},Pre-train error:{}; Pre-test error:{}; test acc:{}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreTestConvergence[-1],PreAcc))
 
         NewNetworksize=RetainNetworkSize(net,params[2])
         OptimizedNet=ChooseModel(modelName,datasetroot,NewNetworksize[0:-1])
@@ -494,11 +495,13 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
 
         OptimizedNet = DataParallel(OptimizedNet)
         OptimizedNet = OptimizedNet.to(device)
-        optimizerNew= SGD(net.parameters(), lr=params[3],momentum=0.9, weight_decay=0)
-
         cudnn.benchmark = True
         criterionNew = nn.CrossEntropyLoss().to(device)
         # Begin Pre training
+        if optimizerName =="SGD":
+            optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], momentum=0.9, weight_decay=5e-4)
+        elif optimizerName =="Adam":
+            optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4, amsgrad=False)
         TrainConvergence,TestConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,
                                                                    NumCutoff,regularization_coef,StartRegurlarionCoeffi,mark,markweights,model_to_save,True)
         np.save("{}/{}Convergence/AlgebraicConectivityTrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
@@ -524,7 +527,6 @@ if __name__=="__main__":
     parser.add_argument('--WindowSize', default=3, type=float, help='Window size for network correction')
     parser.add_argument('--regularization_coef',default=0.01,type=float, help='regularization coefficient')
     parser.add_argument('--StartRegurlarionCoeffi',default=0.3,type=float, help='Start regularization coefficient')
-
     parser.add_argument('--rho', type=float, default=1e-2, metavar='R',
                         help='cardinality weight (default: 1e-2)')
     parser.add_argument('--optimizer',default='SGD',type=str, help='optimizer to train')

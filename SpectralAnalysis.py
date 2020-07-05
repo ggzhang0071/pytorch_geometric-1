@@ -5,7 +5,7 @@ from random import randint,random
 import networkx as nx
 import matplotlib.pyplot as plt
 import torch
-import pickle
+import pickle,os
 import scipy.sparse as sparse
 from collections import Counter
 from matplotlib.ticker import MaxNLocator
@@ -36,14 +36,14 @@ def weights_array_to_cluster_quality(weights_array, adj_mat, num_clusters,
     return ncut_val, clustering_labels
 
 
-def WeightsToAdjaency(Weights):
+def WeightsToAdjaency(Weights,startNodeNums):
     M,N=Weights.shape
     GWeight=nx.Graph()
     GWeight.add_nodes_from(range(M+N))
     G1=GWeight
     for i in range(M):
         for j in range(N):
-            GWeight.add_weighted_edges_from([(i,j+M,Weights[i,j])])
+            GWeight.add_weighted_edges_from([(i+startNodeNums,j+M+startNodeNums,Weights[i,j])])
 
             G1.add_edge(i,j+M)
             
@@ -235,47 +235,108 @@ def chooseSemiMatrix(Weight,locx,M):
             ChooseWeights=Weight[-M:]
     return ChooseWeightspp 
 
-def CorrectWeights(Weight,G,cluters,win):
-    max_iter=5
-    M=win[0]
-    N=win[1]
+def LinkPrediction(G,cluters,VectorPairs,AddedLikGraphResultsFiles):
     PartitionClassi=set([*cluters.keys()])
-    VectorPairs=10
-    CorrectedEdge={}
-    som = MiniSom(M, N,len(Weight[0]), sigma=0.3, learning_rate=0.5) # initialization of 6x6 SOM
-    semipart=int((M-1)/2)
-    semiparty=int((N-1)/2)
-    
-    EigenVectorPair=[]
+    predLinkWeight=[]
+    WrongLink=[]
+    AddLinkGraph=nx.Graph()
     for OneClassi in PartitionClassi:
         oneClassNodes=cluters[OneClassi]
-        H=nx.Graph()
-        H.add_nodes_from(oneClassNodes)
-        for i in [*H.nodes()]:
-            for j in [*H.nodes()]:
-                if (i,j) in G.edges():
-                    H.add_weighted_edges_from([(i,j,G.get_edge_data(i,j)['weight'])])
-        if H.number_of_edges()>=2:
-            d,v=Compute_fiedler_vector(G)
+        SubGraph=nx.Graph()
+        SubGraph.add_nodes_from(oneClassNodes)
+        #l
+        for (i,j) in G.edges:
+            if (i in SubGraph.nodes()) and (j in SubGraph.nodes()) and 'weight' in G.get_edge_data(i,j):
+                    SubGraph.add_weighted_edges_from([(i,j,G.get_edge_data(i,j)['weight'])])
+            else:
+                continue
+        if SubGraph.number_of_edges()>=2:
+            d,v=Compute_fiedler_vector(SubGraph)
             for iter in range(VectorPairs):
-                EigenVectorPair.append([np.argmax(v),np.argmin(v)])
-                locx=np.argmax(v)
-                locy=np.argmin(v)
-                """ChooseWeights=chooseSemiMatrix(Weight,locx,M)
-                ChooseWeights=chooseSemiMatrix(ChooseWeights.T,locy,N).T
-                for iter1 in range(max_iter):
-                    Weight[locx,locy-semiparty:locy+semiparty+1]+=som.correctweights(ChooseWeights,(semipart,semiparty),iter1, max_iter)"""
-            
-                if (locx,locy) in G.edges() or (locx,locy) in H.edges():
-                    print("exists topology errors")
-                v=np.delete(v,locx-1)
-                v=np.delete(v,locy-1)
+                if torch.min(v)<0:
+                    locx=torch.argmax(v).tolist()
+                    locy=torch.argmin(v).tolist()
+                    StartNode=oneClassNodes[locx]
+                    EndNode=oneClassNodes[locy]
+                    WrongLink.append((StartNode,EndNode))
+                    if ((StartNode,EndNode) in SubGraph.edges()) or ((EndNode,StartNode) in SubGraph.edges()):
+                        print("Link between node {} and {}, topology error".format(StartNode,EndNode))
+                    v=np.delete(v,locx)
+                    v=np.delete(v,locy)
+                    AddLinkGraph.add_edge(StartNode,EndNode)
+                    
         else:
             continue
-    EigenVectorPair=torch.tensor(EigenVectorPair).to("cuda")
-    return EigenVectorPair
+    preds=nx.adamic_adar_index(SubGraph,WrongLink)
+    for u,v,p in preds:
+        predLinkWeight.append((u,v,p))
+    AddedLikGraphResultsFiles= "Results/PartitionResults/AddedLindedGraph.pkl"
+    fwG=open(AddedLikGraphResultsFiles,'wb')
+    pickle.dump(G,fwG)
+    return predLinkWeight
 
+def WeightCorrection(classiResultsFiles,GraphResultsFiles,OptimizedNet):
+    VectorPairs=10
+    Graph_array,Gragh_unwighted_array=[],[]
+    LayerNodeNum=[]
+    startNodeNums=0
+    state_dict = OptimizedNet.state_dict()
+    if os.path.exists(classiResultsFiles) and os.path.exists(GraphResultsFiles):
+        frC=open(classiResultsFiles,'rb')
+        PartitionResults=pickle.load(frC)
 
+        frG=open(GraphResultsFiles,'rb')
+        G=pickle.load(frG)
+        L=nx.adjacency_matrix(G)
+        incidence_matrix=nx.incidence_matrix(G)
+        algebraic_connectivity,fiedler_vector=Compute_fiedler_vector(G)
+    
+    else:
+        for layer_name in state_dict:
+            if ("layers" in layer_name) and ("weight" in layer_name):
+                Weight=state_dict[layer_name]
+                print(Weight.shape)
+                if Weight.dim()==3:
+                    Weight=torch.squeeze(Weight)
+                Weight=Weight.cpu().detach().numpy()
+                Gone,G_unweighted=WeightsToAdjaency(Weight,startNodeNums)
+                startNodeNums+=Gone.number_of_nodes()
+                LayerNodeNum.append(Gone.number_of_nodes())
+                Graph_array.append(Gone)
+                Gragh_unwighted_array.append(G_unweighted)
+        G= nx.compose(Graph_array[0],Graph_array[1])
+        Gu= nx.compose(Gragh_unwighted_array[0],Gragh_unwighted_array[1])
+        L=nx.adjacency_matrix(G)
+        incidence_matrix=nx.incidence_matrix(Gu)
+        #comps=nx.connected_components(G)
+        G1,G2,PartitionResults=Fiedler_vector_cluster(G,0)
+        G11,G12,PartitionResults1=Fiedler_vector_cluster(G1,0)
+        G21,G22,PartitionResults2=Fiedler_vector_cluster(G2,2)
+        PartitionResults={**PartitionResults1, **PartitionResults2}   
+        
+        ### saving
+        fwC=open(classiResultsFiles,'wb')
+        pickle.dump(PartitionResults,fwC)
+
+        fwG=open(GraphResultsFiles,'wb')
+        pickle.dump(G,fwG)
+    predLinkWeight=LinkPrediction(G,PartitionResults,VectorPairs)
+    if predLinkWeight[iter][0] > LayerNodeNum[0] or predLinkWeight[iter][1] > LayerNodeNum[0]:
+                    pass
+    i=0
+    for layer_name in state_dict:
+            if ("layers" in layer_name) and ("weight" in layer_name):
+                Weight=state_dict[layer_name]
+                M,N=Weight.shape
+                for iter in range(predLinkWeight):
+                    Weight[predLinkWeight[i][0],predLinkWeight[i][1]]=predLinkWeight[i][2]
+                state_dict[layer_name]=Weight
+                i+=1
+    OptimizedNet.load_state_dict(state_dict)
+                
+    return OptimizedNet
+        
+        
 def eigenvalue(A, v):
     Av = A.dot(v)
     return v.dot(Av)
