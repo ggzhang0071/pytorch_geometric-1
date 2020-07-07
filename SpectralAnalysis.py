@@ -5,7 +5,7 @@ from random import randint,random
 import networkx as nx
 import matplotlib.pyplot as plt
 import torch
-import pickle,os
+import pickle,os,math
 import scipy.sparse as sparse
 from collections import Counter
 from matplotlib.ticker import MaxNLocator
@@ -13,6 +13,7 @@ from sklearn.cluster import DBSCAN,SpectralClustering
 import cupy as cp
 from torch.utils.dlpack import from_dlpack, to_dlpack
 from cupy.core.dlpack import toDlpack,fromDlpack
+import link_prediction as lp
 
 
 def get_key (dict, value):
@@ -212,6 +213,7 @@ def Compute_fiedler_vector(G):
     return algebraic_connectivity, fiedler_vector
 
 def Fiedler_vector_cluster(G,startClassi):
+    
     algebraic_connectivity, fiedler_vector=Compute_fiedler_vector(G)
     PartOne=[]
     PartTwo=[]
@@ -220,7 +222,7 @@ def Fiedler_vector_cluster(G,startClassi):
             PartOne.append(node)
         else:
             PartTwo.append(node)
-    PartitionResults={startClassi+0:PartOne,startClassi+1:PartTwo}
+    PartitionResults={str(startClassi+0):PartOne,str(startClassi+1):PartTwo}
     G1=nx.subgraph(G,PartOne)
     G2=nx.subgraph(G,PartTwo)
     return G1,G2,PartitionResults
@@ -235,10 +237,10 @@ def chooseSemiMatrix(Weight,locx,M):
             ChooseWeights=Weight[-M:]
     return ChooseWeightspp 
 
-def LinkPrediction(G,cluters,VectorPairs,AddedLikGraphResultsFiles):
+
+def WeightedLinkPrediction(G,cluters,VectorPairs):
     PartitionClassi=set([*cluters.keys()])
     predLinkWeight=[]
-    WrongLink=[]
     AddLinkGraph=nx.Graph()
     for OneClassi in PartitionClassi:
         oneClassNodes=cluters[OneClassi]
@@ -258,82 +260,121 @@ def LinkPrediction(G,cluters,VectorPairs,AddedLikGraphResultsFiles):
                     locy=torch.argmin(v).tolist()
                     StartNode=oneClassNodes[locx]
                     EndNode=oneClassNodes[locy]
-                    WrongLink.append((StartNode,EndNode))
+                    WrongLink=[(StartNode,EndNode)]
                     if ((StartNode,EndNode) in SubGraph.edges()) or ((EndNode,StartNode) in SubGraph.edges()):
                         print("Link between node {} and {}, topology error".format(StartNode,EndNode))
                     v=np.delete(v,locx)
                     v=np.delete(v,locy)
-                    AddLinkGraph.add_edge(StartNode,EndNode)
-                    
+                    #AddLinkGraph.add_edge(StartNode,EndNode)
+                    preds=nx.adamic_adar_index(SubGraph,WrongLink)
+                    for u,v,p in preds:
+                        predLinkWeight.append((u,v,p))
         else:
             continue
-    preds=nx.adamic_adar_index(SubGraph,WrongLink)
-    for u,v,p in preds:
-        predLinkWeight.append((u,v,p))
-    AddedLikGraphResultsFiles= "Results/PartitionResults/AddedLindedGraph.pkl"
-    fwG=open(AddedLikGraphResultsFiles,'wb')
-    pickle.dump(G,fwG)
+       
+            
+        ## save
+        """AddedLinkGraphResultsFiles= "Results/PartitionResults/AddedLindedGraph.pkl"
+        fwG=open(AddedLinkGraphResultsFiles,'wb')
+        pickle.dump(G,fwG)"""
     return predLinkWeight
 
-def WeightCorrection(classiResultsFiles,GraphResultsFiles,OptimizedNet):
-    VectorPairs=10
-    Graph_array,Gragh_unwighted_array=[],[]
-    LayerNodeNum=[]
-    startNodeNums=0
-    state_dict = OptimizedNet.state_dict()
-    if os.path.exists(classiResultsFiles) and os.path.exists(GraphResultsFiles):
-        frC=open(classiResultsFiles,'rb')
-        PartitionResults=pickle.load(frC)
 
-        frG=open(GraphResultsFiles,'rb')
-        G=pickle.load(frG)
-        L=nx.adjacency_matrix(G)
-        incidence_matrix=nx.incidence_matrix(G)
-        algebraic_connectivity,fiedler_vector=Compute_fiedler_vector(G)
-    
+def WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,OptimizedNet,PredAddEdgeResults,VectorPairs):
+    if os.path.exists(PredAddEdgeResults):
+        predLinkWeight=np.load(PredAddEdgeResults)
     else:
+        Graph_array,Gragh_unwighted_array=[],[]
+        LayerNodeNum=[]
+        startNodeNums=0
+        state_dict = OptimizedNet.state_dict()
+        if os.path.exists(classiResultsFiles) and os.path.exists(GraphResultsFiles):
+            frC=open(classiResultsFiles,'rb')
+            PartitionResults=pickle.load(frC)
+
+            frG=open(GraphResultsFiles,'rb')
+            G=pickle.load(frG)
+            L=nx.adjacency_matrix(G)
+            incidence_matrix=nx.incidence_matrix(G)
+            algebraic_connectivity,fiedler_vector=Compute_fiedler_vector(G)
+
+        else:
+            for layer_name in state_dict:
+                if ("layers" in layer_name) and ("weight" in layer_name):
+                    Weight=state_dict[layer_name]
+                    print(Weight.shape)
+                    if Weight.dim()==3:
+                        Weight=torch.squeeze(Weight)
+                        DimCompress=True
+                    Weight=Weight.cpu().detach().numpy()
+                    Gone,G_unweighted=WeightsToAdjaency(Weight,startNodeNums)
+                    startNodeNums+=Gone.number_of_nodes()
+                    LayerNodeNum.append(Gone.number_of_nodes())
+                    Graph_array.append(Gone)
+                    Gragh_unwighted_array.append(G_unweighted)
+            G= nx.compose(Graph_array[0],Graph_array[1])
+            Gu= nx.compose(Gragh_unwighted_array[0],Gragh_unwighted_array[1])
+            L=nx.adjacency_matrix(G)
+            incidence_matrix=nx.incidence_matrix(Gu)
+            #comps=nx.connected_components(G)
+            G_array=[G]
+            iter1=0
+            while len(G_array) < num_classes and iter1<math.log(num_classes,2)+1:
+                G_array_tmp=[]
+                PartitionResults={}
+                for i in range(len(G_array)):
+                    if G_array[i].number_of_edges()>0:
+                        G1,G2,PartitionResults1=Fiedler_vector_cluster(G_array[i],0+2*i)
+                        G_array_tmp.append(G1)
+                        G_array_tmp.append(G2)
+                        PartitionResults.update(PartitionResults1)
+                    else:
+                        continue
+                iter1+=1
+                G_array=G_array_tmp
+
+            ### saving
+            fwC=open(classiResultsFiles,'wb')
+            pickle.dump(PartitionResults,fwC)
+
+            fwG=open(GraphResultsFiles,'wb')
+            pickle.dump(G,fwG)
+        predLinkWeight=WeightedLinkPrediction(G,PartitionResults,VectorPairs)
+        np.save(PredAddEdgeResults,predLinkWeight)
+
+    if len(predLinkWeight)==0:
+        pass
+    else:
+        i=0
+        state_dict = OptimizedNet.state_dict()
+        BaseNode=0
         for layer_name in state_dict:
             if ("layers" in layer_name) and ("weight" in layer_name):
                 Weight=state_dict[layer_name]
-                print(Weight.shape)
                 if Weight.dim()==3:
                     Weight=torch.squeeze(Weight)
-                Weight=Weight.cpu().detach().numpy()
-                Gone,G_unweighted=WeightsToAdjaency(Weight,startNodeNums)
-                startNodeNums+=Gone.number_of_nodes()
-                LayerNodeNum.append(Gone.number_of_nodes())
-                Graph_array.append(Gone)
-                Gragh_unwighted_array.append(G_unweighted)
-        G= nx.compose(Graph_array[0],Graph_array[1])
-        Gu= nx.compose(Gragh_unwighted_array[0],Gragh_unwighted_array[1])
-        L=nx.adjacency_matrix(G)
-        incidence_matrix=nx.incidence_matrix(Gu)
-        #comps=nx.connected_components(G)
-        G1,G2,PartitionResults=Fiedler_vector_cluster(G,0)
-        G11,G12,PartitionResults1=Fiedler_vector_cluster(G1,0)
-        G21,G22,PartitionResults2=Fiedler_vector_cluster(G2,2)
-        PartitionResults={**PartitionResults1, **PartitionResults2}   
-        
-        ### saving
-        fwC=open(classiResultsFiles,'wb')
-        pickle.dump(PartitionResults,fwC)
+                    DimCompress=True
+                else:
+                    DimCompress=False
 
-        fwG=open(GraphResultsFiles,'wb')
-        pickle.dump(G,fwG)
-    predLinkWeight=LinkPrediction(G,PartitionResults,VectorPairs)
-    if predLinkWeight[iter][0] > LayerNodeNum[0] or predLinkWeight[iter][1] > LayerNodeNum[0]:
-                    pass
-    i=0
-    for layer_name in state_dict:
-            if ("layers" in layer_name) and ("weight" in layer_name):
-                Weight=state_dict[layer_name]
                 M,N=Weight.shape
-                for iter in range(predLinkWeight):
-                    Weight[predLinkWeight[i][0],predLinkWeight[i][1]]=predLinkWeight[i][2]
-                state_dict[layer_name]=Weight
+                for i in range(len(predLinkWeight)):
+                    if BaseNode<=predLinkWeight[i][0]<=M+BaseNode and BaseNode<predLinkWeight[i][1]<=M+BaseNode:
+                        Weight[int(predLinkWeight[i][0]-BaseNode),int(predLinkWeight[i][1]-BaseNode)]=predLinkWeight[i][2]
+                    elif BaseNode<=predLinkWeight[i][0]<BaseNode+M and BaseNode+M<predLinkWeight[i][1]<=(BaseNode+M+N):
+                        Weight[int(predLinkWeight[i][0]-BaseNode),int(predLinkWeight[i][1]-M-BaseNode)]=predLinkWeight[i][2]
+                    elif BaseNode+M<predLinkWeight[i][0]<=(BaseNode+M+N) and BaseNode+M<predLinkWeight[i][1]<=(BaseNode+M+N):
+                        Weight[int(predLinkWeight[i][0]-M-BaseNode),int(predLinkWeight[i][1]-M-BaseNode)]=predLinkWeight[i][2]
+                    else:
+                        continue
+                BaseNode=M+N
+                if DimCompress==True:
+                    state_dict[layer_name]=torch.unsqueeze(Weight,0)
+                else:
+                    pass
                 i+=1
-    OptimizedNet.load_state_dict(state_dict)
-                
+        OptimizedNet.load_state_dict(state_dict)
+
     return OptimizedNet
         
         

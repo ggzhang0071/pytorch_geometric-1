@@ -43,7 +43,7 @@ def ChooseModel(model_name,datasetroot,width):
     return net
 
 
-def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,regularization_coef,StartRegurlarionCoeffi,mark,markweights,model_to_save,TrainFlag):
+def TrainPart(start_epoch,num_epochs,num_classes,trainloader,OptimizedNet,optimizerNew,criterionNew,NumCutoff,VectorPairs,StartTopoCoeffi,mark,markweights,model_to_save,TrainFlag):
     best_acc =1  # best test loss
     TrainConvergence,TestConvergence=[],[]
     for epoch in range(start_epoch,num_epochs):
@@ -53,10 +53,11 @@ def TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,crite
             """NewNetworkWeight=RetainNetworkSize(OptimizedNet,params[2])[1]
             torch.save(NewNetworkWeight[0:-1],"{}-{}.pt".format(markweights,epoch))"""
 
-        if epoch>num_epochs*StartRegurlarionCoeffi and epoch%20==0 and TrainFlag==True:
+        if epoch>num_epochs*StartTopoCoeffi and epoch%20==0 and TrainFlag==True:
             classiResultsFiles="Results/PartitionResults/{}-{}-oneClassNodeEpoch_{}.pkl".format(dataset,modelName,str(epoch))
             GraphResultsFiles="Results/PartitionResults/{}-{}-GraphEpoch_{}.pkl".format(dataset,modelName,str(epoch))
-            OptimizedNet=WeightCorrection(classiResultsFiles,GraphResultsFiles,OptimizedNet)
+            PredAddEdgeResults="Results/PartitionResults/{}-{}-AddEdgesEpoch_{}-VectorPairs_{}.npy".format(dataset,modelName,str(epoch),str(VectorPairs))
+            OptimizedNet=WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,OptimizedNet,PredAddEdgeResults,VectorPairs)
         else:
             SVDOrNot=[]
             AddedEigenVectorPair=[torch.Tensor([[],[]]),torch.Tensor([[],[]])]
@@ -410,8 +411,8 @@ def test(trainloader,net,criterion):
 
 def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,optimizerName,MonteSize,savepath):
     Batch_size=int(params[0])
-    regularization_coef=params[4]
-    StartRegurlarionCoeffi=params[5]
+    VectorPairs=params[4]
+    StartTopoCoeffi=params[5]
     root='/git/data/GraphData/'+dataset
     TestAccs=[]
     for Monte_iter in range(MonteSize):
@@ -482,7 +483,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         mark="{}{}Convergence/DiagElement-{}".format(savepath,dataset,FileName)
         markweights="{}{}Convergence/WeightChanges-{}".format(savepath,dataset,FileName)
                      
-        PreTrainConvergence,PreTestConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,                        trainloader,net,optimizer,criterion,NumCutoff,regularization_coef,StartRegurlarionCoeffi,mark,markweights,model_to_save,False)
+        PreTrainConvergence,PreTestConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,datasetroot.num_classes,                        trainloader,net,optimizer,criterion,NumCutoff,VectorPairs,StartTopoCoeffi,mark,markweights,model_to_save,False)
         print('dataset: {}, model name:{}, epoch:{},Pre-train error:{}; Pre-test error:{}; test acc:{}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreTestConvergence[-1],PreAcc))
 
         NewNetworksize=RetainNetworkSize(net,params[2])
@@ -502,8 +503,8 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], momentum=0.9, weight_decay=5e-4)
         elif optimizerName =="Adam":
             optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4, amsgrad=False)
-        TrainConvergence,TestConvergence,TestAcc=TrainPart(start_epoch,num_epochs,trainloader,OptimizedNet,optimizerNew,criterionNew,
-                                                                   NumCutoff,regularization_coef,StartRegurlarionCoeffi,mark,markweights,model_to_save,True)
+        TrainConvergence,TestConvergence,TestAcc=TrainPart(start_epoch,num_epochs,datasetroot.num_classes, trainloader,OptimizedNet,optimizerNew,criterionNew,
+                                                                   NumCutoff,VectorPairs,StartTopoCoeffi,mark,markweights,model_to_save,True)
         np.save("{}/{}Convergence/AlgebraicConectivityTrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
         np.save("{}/{}Convergence/AlgebraicConectivityTestConvergence-{}".format(savepath,dataset,FileName),TestConvergence)
         #np.save("{}/{}Convergence/AlgebraicConectivityTestAcc-{}".format(savepath,dataset,FileName),TestAcc)
@@ -525,8 +526,8 @@ if __name__=="__main__":
     parser.add_argument('--ConCoeff', default=0.99, type=float, help='contraction coefficients')
     parser.add_argument('--NumCutoff', default=5, type=float, help='contraction coefficients')
     parser.add_argument('--WindowSize', default=3, type=float, help='Window size for network correction')
-    parser.add_argument('--regularization_coef',default=0.01,type=float, help='regularization coefficient')
-    parser.add_argument('--StartRegurlarionCoeffi',default=0.3,type=float, help='Start regularization coefficient')
+    parser.add_argument('--VectorPairs',default=1,type=float, help='regularization coefficient')
+    parser.add_argument('--StartTopoCoeffi',default=0.3,type=float, help='Start regularization coefficient')
     parser.add_argument('--rho', type=float, default=1e-2, metavar='R',
                         help='cardinality weight (default: 1e-2)')
     parser.add_argument('--optimizer',default='SGD',type=str, help='optimizer to train')
@@ -554,7 +555,7 @@ if __name__=="__main__":
     resume=args.resume
     save_recurrence_plots=args.save_recurrence_plots
     #params=[args.BatchSize,args.NumLayers,args.args.ConCoeff,args.CutoffCoeff]
-    params=[args.BatchSize,args.NumLayers,args.ConCoeff,args.LR,args.regularization_coef,args.StartRegurlarionCoeffi]
+    params=[args.BatchSize,args.NumLayers,args.ConCoeff,args.LR,args.VectorPairs,args.StartTopoCoeffi]
     global modelName
     modelName=args.modelName
     global dataset
