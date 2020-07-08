@@ -238,7 +238,7 @@ def chooseSemiMatrix(Weight,locx,M):
     return ChooseWeightspp 
 
 
-def WeightedLinkPrediction(G,cluters,VectorPairs):
+def WeightedLinkPrediction(G,cluters,LinkPredictionMethod,VectorPairs):
     PartitionClassi=set([*cluters.keys()])
     predLinkWeight=[]
     AddLinkGraph=nx.Graph()
@@ -253,20 +253,18 @@ def WeightedLinkPrediction(G,cluters,VectorPairs):
             else:
                 continue
         if SubGraph.number_of_edges()>=2:
-            d,v=Compute_fiedler_vector(SubGraph)
-            for iter in range(VectorPairs):
-                if torch.min(v)<0:
-                    locx=torch.argmax(v).tolist()
-                    locy=torch.argmin(v).tolist()
+            diag,vector=Compute_fiedler_vector(SubGraph)
+            for iter1 in range(VectorPairs):
+                if torch.min(vector)<0:
+                    locx=torch.argmax(vector).tolist()
+                    locy=torch.argmin(vector).tolist()
                     StartNode=oneClassNodes[locx]
                     EndNode=oneClassNodes[locy]
                     WrongLink=[(StartNode,EndNode)]
-                    if ((StartNode,EndNode) in SubGraph.edges()) or ((EndNode,StartNode) in SubGraph.edges()):
-                        print("Link between node {} and {}, topology error".format(StartNode,EndNode))
-                    v=np.delete(v,locx)
-                    v=np.delete(v,locy)
+                    vector=np.delete(vector,locx)
+                    vector=np.delete(vector,locy)
                     #AddLinkGraph.add_edge(StartNode,EndNode)
-                    preds=nx.adamic_adar_index(SubGraph,WrongLink)
+                    preds=getattr(nx,LinkPredictionMethod)(SubGraph,WrongLink)
                     for u,v,p in preds:
                         predLinkWeight.append((u,v,p))
         else:
@@ -280,15 +278,15 @@ def WeightedLinkPrediction(G,cluters,VectorPairs):
     return predLinkWeight
 
 
-def WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,OptimizedNet,PredAddEdgeResults,VectorPairs):
-    if os.path.exists(PredAddEdgeResults):
+def WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,OptimizedNet,PredAddEdgeResults,LinkPredictionMethod,VectorPairs,UseOld):
+    if os.path.exists(PredAddEdgeResults) and UseOld==True:
         predLinkWeight=np.load(PredAddEdgeResults)
     else:
         Graph_array,Gragh_unwighted_array=[],[]
         LayerNodeNum=[]
         startNodeNums=0
         state_dict = OptimizedNet.state_dict()
-        if os.path.exists(classiResultsFiles) and os.path.exists(GraphResultsFiles):
+        if os.path.exists(classiResultsFiles) and os.path.exists(GraphResultsFiles) and UseOld==True:
             frC=open(classiResultsFiles,'rb')
             PartitionResults=pickle.load(frC)
 
@@ -339,15 +337,15 @@ def WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,OptimizedN
 
             fwG=open(GraphResultsFiles,'wb')
             pickle.dump(G,fwG)
-        predLinkWeight=WeightedLinkPrediction(G,PartitionResults,VectorPairs)
+        predLinkWeight=WeightedLinkPrediction(G,PartitionResults,LinkPredictionMethod,VectorPairs)
         np.save(PredAddEdgeResults,predLinkWeight)
 
     if len(predLinkWeight)==0:
         pass
     else:
-        i=0
+        print(predLinkWeight)
         state_dict = OptimizedNet.state_dict()
-        BaseNode=0
+        NeededAddEdges=[]
         for layer_name in state_dict:
             if ("layers" in layer_name) and ("weight" in layer_name):
                 Weight=state_dict[layer_name]
@@ -356,23 +354,25 @@ def WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,OptimizedN
                     DimCompress=True
                 else:
                     DimCompress=False
-
                 M,N=Weight.shape
-                for i in range(len(predLinkWeight)):
-                    if BaseNode<=predLinkWeight[i][0]<=M+BaseNode and BaseNode<predLinkWeight[i][1]<=M+BaseNode:
-                        Weight[int(predLinkWeight[i][0]-BaseNode),int(predLinkWeight[i][1]-BaseNode)]=predLinkWeight[i][2]
-                    elif BaseNode<=predLinkWeight[i][0]<BaseNode+M and BaseNode+M<predLinkWeight[i][1]<=(BaseNode+M+N):
-                        Weight[int(predLinkWeight[i][0]-BaseNode),int(predLinkWeight[i][1]-M-BaseNode)]=predLinkWeight[i][2]
-                    elif BaseNode+M<predLinkWeight[i][0]<=(BaseNode+M+N) and BaseNode+M<predLinkWeight[i][1]<=(BaseNode+M+N):
-                        Weight[int(predLinkWeight[i][0]-M-BaseNode),int(predLinkWeight[i][1]-M-BaseNode)]=predLinkWeight[i][2]
+                BaseNode=0
+                for iter1 in range(len(predLinkWeight)):
+                    if BaseNode<=predLinkWeight[iter1][0]<(BaseNode+M) and (BaseNode+M)<=predLinkWeight[iter1][1]<=(BaseNode+M+N):
+                        Weight[int(predLinkWeight[iter1][0]-BaseNode),int(predLinkWeight[iter1][1]-M-BaseNode)]=predLinkWeight[iter1][2]
+                        print("Weight change from {} to {} at connection between node {} to {} weight errors.".format(round(Weight[int(predLinkWeight[iter1][0]-BaseNode),int(predLinkWeight[iter1][1]-M-BaseNode)],4),round(predLinkWeight[iter1][2],4) ,int(predLinkWeight[iter1][0]-BaseNode),int(predLinkWeight[iter1][1]-M-BaseNode)))
+        
+                    elif ((BaseNode<=predLinkWeight[iter1][0]<BaseNode+M and BaseNode<predLinkWeight[iter1][1]<=(BaseNode+M))) or ((BaseNode+M<=predLinkWeight[iter1][0]<(BaseNode+M+N) and (BaseNode+M)<predLinkWeight[iter1][1]<=(BaseNode+M+N))):
+                        print("Need add peer topology from node {} to {}".format(int(predLinkWeight[iter1][0]-BaseNode),int(predLinkWeight[iter1][1]-BaseNode)))
+                        NeededAddEdges.append(predLinkWeight[iter1])
                     else:
-                        continue
-                BaseNode=M+N
+                        print("Topology wrong that need correct from node {} to {}".format(int(predLinkWeight[iter1][0]-BaseNode),int(predLinkWeight[iter1][1]-BaseNode)))
+                        
                 if DimCompress==True:
                     state_dict[layer_name]=torch.unsqueeze(Weight,0)
                 else:
                     pass
-                i+=1
+                BaseNode=M+N
+
         OptimizedNet.load_state_dict(state_dict)
 
     return OptimizedNet
