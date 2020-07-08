@@ -260,7 +260,7 @@ def WeightedLinkPrediction(G,cluters,LinkPredictionMethod,VectorPairs):
                     locy=torch.argmin(vector).tolist()
                     StartNode=oneClassNodes[locx]
                     EndNode=oneClassNodes[locy]
-                    WrongLink=[(StartNode,EndNode)]
+                    WrongLink=[tuple(sorted([StartNode,EndNode]))]
                     vector=np.delete(vector,locx)
                     vector=np.delete(vector,locy)
                     #AddLinkGraph.add_edge(StartNode,EndNode)
@@ -278,7 +278,7 @@ def WeightedLinkPrediction(G,cluters,LinkPredictionMethod,VectorPairs):
     return predLinkWeight
 
 
-def WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,OptimizedNet,PredAddEdgeResults,LinkPredictionMethod,VectorPairs,UseOld):
+def WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,OptimizedNet,PredAddEdgeResults,LinkPredictionMethod,VectorPairs,WeightCorrectionCoeffi,UseOld):
     if os.path.exists(PredAddEdgeResults) and UseOld==True:
         predLinkWeight=np.load(PredAddEdgeResults)
     else:
@@ -358,8 +358,9 @@ def WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,OptimizedN
                 BaseNode=0
                 for iter1 in range(len(predLinkWeight)):
                     if BaseNode<=predLinkWeight[iter1][0]<(BaseNode+M) and (BaseNode+M)<=predLinkWeight[iter1][1]<=(BaseNode+M+N):
-                        Weight[int(predLinkWeight[iter1][0]-BaseNode),int(predLinkWeight[iter1][1]-M-BaseNode)]=predLinkWeight[iter1][2]
-                        print("Weight change from {} to {} at connection between node {} to {} weight errors.".format(round(Weight[int(predLinkWeight[iter1][0]-BaseNode),int(predLinkWeight[iter1][1]-M-BaseNode)],4),round(predLinkWeight[iter1][2],4) ,int(predLinkWeight[iter1][0]-BaseNode),int(predLinkWeight[iter1][1]-M-BaseNode)))
+                        Weight[int(predLinkWeight[iter1][0]-BaseNode),int(predLinkWeight[iter1][1]-M-BaseNode)]+=WeightCorrectionCoeffi*predLinkWeight[iter1][2]
+                        tmp=Weight[int(predLinkWeight[iter1][0]-BaseNode),int(predLinkWeight[iter1][1]-M-BaseNode)]
+                        print("Weight change from {} to {} at connection between node {} to {} weight errors.".format(round(tmp.item(),4),round(predLinkWeight[iter1][2],4),int(predLinkWeight[iter1][0]-BaseNode),int(predLinkWeight[iter1][1]-M-BaseNode)))
         
                     elif ((BaseNode<=predLinkWeight[iter1][0]<BaseNode+M and BaseNode<predLinkWeight[iter1][1]<=(BaseNode+M))) or ((BaseNode+M<=predLinkWeight[iter1][0]<(BaseNode+M+N) and (BaseNode+M)<predLinkWeight[iter1][1]<=(BaseNode+M+N))):
                         print("Need add peer topology from node {} to {}".format(int(predLinkWeight[iter1][0]-BaseNode),int(predLinkWeight[iter1][1]-BaseNode)))
