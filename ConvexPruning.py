@@ -57,7 +57,11 @@ def TrainPart(start_epoch,num_epochs,num_classes,trainloader,OptimizedNet,optimi
             classiResultsFiles="Results/PartitionResults/{}-{}-oneClassNodeEpoch_{}.pkl".format(dataset,modelName,str(epoch))
             GraphResultsFiles="Results/PartitionResults/{}-{}-GraphEpoch_{}.pkl".format(dataset,modelName,str(epoch))
             PredAddEdgeResults="Results/PartitionResults/{}-{}-AddEdgesEpoch_{}-VectorPairs_{}.npy".format(dataset,modelName,str(epoch),str(VectorPairs))
-            OptimizedNet=WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,OptimizedNet,PredAddEdgeResults,LinkPredictionMethod,VectorPairs,WeightCorrectionCoeffi,False)
+            OptimizedNet=WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,OptimizedNet,
+                                          PredAddEdgeResults,LinkPredictionMethod,VectorPairs,WeightCorrectionCoeffi,False)
+            TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterionNew)
+
+            
         else:
             SVDOrNot=[]
             AddedEigenVectorPair=[torch.Tensor([[],[]]),torch.Tensor([[],[]])]
@@ -263,7 +267,7 @@ class ChebConvNet(torch.nn.Module):
 
     def forward(self,data):
         x, edge_index = data.x, data.edge_index
-        M,N=x.shape
+        M,N=x.s
         DiagElemnt=[]
         for layer in self.layers[:-1]:
             x+=torch.from_numpy(self.AddNoisecoeffi*np.random.randn(M,N)).to('cuda')
