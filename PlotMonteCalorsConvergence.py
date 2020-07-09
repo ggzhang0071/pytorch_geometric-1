@@ -44,6 +44,7 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
 
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
+            print("{}*{}*{}*{}*{}*{}*{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[i],coefficientsThree[0],coefficientsFour[0]))
             for file in glob.glob("{}*{}*{}*{}*{}*{}*{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[i],coefficientsThree[0],coefficientsFour[0])):
                 print(file)
                 TrainConvergence=np.load(file).tolist()

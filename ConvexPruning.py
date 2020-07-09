@@ -27,13 +27,13 @@ import pickle
 import networkx as nx
 
 
-def ChooseModel(model_name,datasetroot,width):
+def ChooseModel(model_name,datasetroot,width,AddNoisecoeffi):
     if model_name=="GCN":  
-        net=GCN(datasetroot,width) 
+        net=GCN(datasetroot,width,AddNoisecoeffi) 
     elif model_name=="SplineNet":     
         net=SplineNet(datasetroot,width) 
     elif model_name=="ChebConvNet":
-        net=ChebConvNet(datasetroot,width)  
+        net=ChebConvNet(datasetroot,width,AddNoisecoeffi)  
     elif model_name=="AGNNNet":
         net=AGNNNet(datasetroot,width)  
     elif model_name=="topk_pool_Net":
@@ -167,9 +167,10 @@ def save_recurrencePlots(net,save_recurrencePlots_file):
       #net.apply(weight_reset)
 
 class GCN(torch.nn.Module):
-    def __init__(self,datasetroot,width):
+    def __init__(self,datasetroot,width,AddNoisecoeffi):
         super(GCN,self).__init__()
         self.NumLayers=len(width)
+        self.AddNoisecoeffi=AddNoisecoeffi
         self.layers = nn.ModuleList()
         self.layers.append(GCNConv(datasetroot.num_features, width[0], cached=True))
         for i in range(self.NumLayers-1):
@@ -181,12 +182,14 @@ class GCN(torch.nn.Module):
     def forward(self,data):
         x, edge_index = data.x, data.edge_index
         DiagElemnt=[]
+        [M,N]=x.shape
         i=0
         for layer in self.layers[:-1]:
             SaveDynamicsEvolution(x) 
             """if AddedEigenVectorPair[i].shape[1]>1:
                 print("add edges OK")
             edge_index=torch.cat((edge_index,AddedEigenVectorPair[i]),1)"""
+            x+=torch.from_numpy(self.AddNoisecoeffi*np.random.randn(M,N)).to('cuda')
             x=layer(x,edge_index)
             x =x*torch.sigmoid(x)
             i+=1
@@ -246,8 +249,9 @@ class AGNNNet(torch.nn.Module):
         return F.log_softmax(x, dim=1)    
 
 class ChebConvNet(torch.nn.Module):
-    def __init__(self,datasetroot,width):
+    def __init__(self,datasetroot,width,AddNoisecoeffi):
         self.NumLayers=len(width)
+        self.AddNoisecoeffi=AddNoisecoeffi
         super(ChebConvNet,self).__init__()
         self.layers = nn.ModuleList()
         self.layers.append(ChebConv(datasetroot.num_features,width[0],K=1))
@@ -259,8 +263,10 @@ class ChebConvNet(torch.nn.Module):
 
     def forward(self,data):
         x, edge_index = data.x, data.edge_index
+        M,N=x.shape
         DiagElemnt=[]
         for layer in self.layers[:-1]:
+            x+=torch.from_numpy(self.AddNoisecoeffi*np.random.randn(M,N)).to('cuda')
             SaveDynamicsEvolution(x)
             x=layer(x,edge_index)
             x =x*torch.sigmoid(x)
@@ -414,6 +420,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
     VectorPairs=params[4]
     StartTopoCoeffi=params[5]
     WeightCorrectionCoeffi=params[6]
+    AddNoisecoeffi=params[7]
     root='/git/data/GraphData/'+dataset
     TestAccs=[]
     for Monte_iter in range(MonteSize):
@@ -461,7 +468,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             raise Exception("Input wrong datatset!!")
         
         width=ContractionLayerCoefficients(datasetroot.num_features,*params[1:3])
-        net =ChooseModel(modelName,datasetroot,width)    
+        net =ChooseModel(modelName,datasetroot,width,AddNoisecoeffi)    
         FileName="{}-{}-param_{}_{}_{}_{}-monte_{}".format(dataset,modelName,Batch_size,WeightCorrectionCoeffi,StartTopoCoeffi,VectorPairs,Monte_iter)
         print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -488,7 +495,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         print('dataset: {}, model name:{}, epoch:{},Pre-train error:{}; Pre-test error:{}; test acc:{}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreTestConvergence[-1],PreAcc))
 
         NewNetworksize=RetainNetworkSize(net,params[2])
-        OptimizedNet=ChooseModel(modelName,datasetroot,NewNetworksize[0:-1])
+        OptimizedNet=ChooseModel(modelName,datasetroot,NewNetworksize[0:-1],AddNoisecoeffi)
         NewNetworksize.insert(0,datasetroot.num_features)
         NewNetworkSizeAdjust.append(NewNetworksize[0:-1])
         print(NewNetworkSizeAdjust)
@@ -527,6 +534,7 @@ if __name__=="__main__":
     parser.add_argument('--NumCutoff', default=5, type=float, help='contraction coefficients')
     parser.add_argument('--WindowSize', default=3, type=float, help='Window size for network correction')
     parser.add_argument('--VectorPairs',default=1,type=int, help='Vector pair')
+    parser.add_argument('--AddNoisecoeffi',default=0.01,type=float, help='Add noise coefficient to data')
     parser.add_argument('--StartTopoCoeffi',default=0.3,type=float, help='Start regularization coefficient')
     parser.add_argument('--WeightCorrectionCoeffi',default=0.1,type=float, help='Weight correction coefficient')
     parser.add_argument('--rho', type=float, default=1e-2, metavar='R',
@@ -557,7 +565,7 @@ if __name__=="__main__":
     resume=args.resume
     save_recurrence_plots=args.save_recurrence_plots
     #params=[args.BatchSize,args.NumLayers,args.args.ConCoeff,args.CutoffCoeff]
-    params=[args.BatchSize,args.NumLayers,args.ConCoeff,args.LR,args.VectorPairs,args.StartTopoCoeffi,args.WeightCorrectionCoeffi]
+    params=[args.BatchSize,args.NumLayers,args.ConCoeff,args.LR,args.VectorPairs,args.StartTopoCoeffi,args.WeightCorrectionCoeffi,args.AddNoisecoeffi]
     global modelName
     modelName=args.modelName
     global dataset

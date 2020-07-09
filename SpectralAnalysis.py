@@ -261,8 +261,8 @@ def WeightedLinkPrediction(G,cluters,LinkPredictionMethod,VectorPairs):
                     StartNode=oneClassNodes[locx]
                     EndNode=oneClassNodes[locy]
                     WrongLink=[tuple(sorted([StartNode,EndNode]))]
-                    vector=np.delete(vector,locx)
-                    vector=np.delete(vector,locy)
+                    vector=np.delete(vector,locx-1)
+                    vector=np.delete(vector,locy-1)
                     #AddLinkGraph.add_edge(StartNode,EndNode)
                     preds=getattr(nx,LinkPredictionMethod)(SubGraph,WrongLink)
                     for u,v,p in preds:
