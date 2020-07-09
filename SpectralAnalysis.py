@@ -13,7 +13,6 @@ from sklearn.cluster import DBSCAN,SpectralClustering
 import cupy as cp
 from torch.utils.dlpack import from_dlpack, to_dlpack
 from cupy.core.dlpack import toDlpack,fromDlpack
-import link_prediction as lp
 
 
 def get_key (dict, value):
