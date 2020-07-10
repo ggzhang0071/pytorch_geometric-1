@@ -13,6 +13,7 @@ from sklearn.cluster import DBSCAN,SpectralClustering
 import cupy as cp
 from torch.utils.dlpack import from_dlpack, to_dlpack
 from cupy.core.dlpack import toDlpack,fromDlpack
+import link_prediction as lp
 
 
 def get_key (dict, value):
@@ -356,7 +357,7 @@ def WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,OptimizedN
                 M,N=Weight.shape
                 BaseNode=0
                 for iter1 in range(len(predLinkWeight)):
-                    if BaseNode<=predLinkWeight[iter1][0]<(BaseNode+M) and (BaseNode+M)<=predLinkWeight[iter1][1]<=(BaseNode+M+N):
+                    if BaseNode<=predLinkWeight[iter1][0]<=(BaseNode+M) and (BaseNode+M)<=predLinkWeight[iter1][1]<=(BaseNode+M+N):
                         Weight[int(predLinkWeight[iter1][0]-BaseNode),int(predLinkWeight[iter1][1]-M-BaseNode)]+=WeightCorrectionCoeffi*predLinkWeight[iter1][2]
                         tmp=Weight[int(predLinkWeight[iter1][0]-BaseNode),int(predLinkWeight[iter1][1]-M-BaseNode)]
                         print("Weight change from {} to {} at connection between node {} to {} weight errors.".format(round(tmp.item(),4),round(predLinkWeight[iter1][2],4),int(predLinkWeight[iter1][0]-BaseNode),int(predLinkWeight[iter1][1]-M-BaseNode)))
