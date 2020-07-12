@@ -44,7 +44,7 @@ def ChooseModel(model_name,num_features,num_classes,width):
     return net
 
 
-def TrainPart(start_epoch,num_epochs,num_classes,trainloader,OptimizedNet,optimizerNew,criterion,NumCutoff,LinkPredictionMethod,VectorPairs,WeightCorrectionCoeffi,StartTopoCoeffi,mark,markweights,model_to_save,TrainFlag):
+def TrainPart(start_epoch,num_epochs,num_classes,trainloader,OptimizedNet,optimizerNew,criterion,DataMask,NumCutoff,LinkPredictionMethod,VectorPairs,WeightCorrectionCoeffi,StartTopoCoeffi,mark,markweights,model_to_save,TrainFlag):
     best_acc =1  # best test loss
     TrainConvergence,TestConvergence=[],[]
     for epoch in range(start_epoch,num_epochs):
@@ -59,16 +59,16 @@ def TrainPart(start_epoch,num_epochs,num_classes,trainloader,OptimizedNet,optimi
             GraphResultsFiles="Results/PartitionResults/{}-{}-GraphEpoch_{}.pkl".format(dataset,modelName,str(epoch))
             PredAddEdgeResults="Results/PartitionResults/{}-{}-AddEdgesEpoch_{}-VectorPairs_{}.npy".format(dataset,modelName,str(epoch),str(VectorPairs))
             OptimizedNet=WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,OptimizedNet,PredAddEdgeResults,LinkPredictionMethod,VectorPairs,WeightCorrectionCoeffi,False)
-            TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterion)
+            TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterion,DataMask)
             
 
             
         else:
             SVDOrNot=[]
             AddedEigenVectorPair=[torch.Tensor([[],[]]),torch.Tensor([[],[]])]
-            TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterion)
+            TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterion,DataMask)
 
-        TestLoss,Acc=test(trainloader,OptimizedNet,criterion)          
+        TestLoss,Acc=test(trainloader,OptimizedNet,criterion,DataMask)          
         print('\n Epoch: {},  Train, Val, Test Loss:{}; Train, Val and Test acc: {}.\n'.format(epoch,TestLoss,Acc))
         TrainConvergence.append(statistics.mean(TrainLoss))
         TestConvergence.append(TestLoss[-1])
@@ -369,45 +369,9 @@ def ResumeModel(net,optimizer,model_to_save):
     Acc = checkpoint['TestAcc']
     return net,optimizer,TrainConvergence,TestConvergence,Acc
 
-"""def train(trainloader,net,optimizer,criterion):
-    net.train()
-    train_loss = []
-    Bath_data_list=[]
-    optimizer.zero_grad()
-    target=torch.Tensor()
-    for data_list in trainloader:
-        output=net(data_list)
-        for data in data_list:
-            target= torch.cat((target,data.y),0).to(output.device)
-        loss = criterion(output, target)
-           
-        loss.backward()
-        train_loss.append(loss.item()/len(data_list))  
-        optimizer.step()
-              
-    return train_loss
 
 
-def test(testloader,net,criterion):
-    net.eval()
-    test_loss,accs= [],[]
-    with torch.no_grad():
-        for data_list in testloader:
-            output= net(data_list)
-            for data in data_list:
-                    y = torch.cat([data.y for data in data_list]).to(output.device)
-                    pred= output.max(1)[1]
-                    acc=pred.eq(data.y.to(pred.device)).sum().item()/len(data.y)
-                    accs.append(acc)
-                    loss = criterion(output, y)
-                    test_loss.append(loss.item())
-
-            #acc = torch.cat(pred.eq(data.y.to(pred.device)).sum().item()/len(data.y) for data in data_list])
-
-    #print('\n Test set: Average loss: {:.4f} \n'.format(test_loss[-1]))
-    return test_loss,accs"""
-
-def train(trainloader,net,optimizer,criterion):
+def train(trainloader,net,optimizer,criterion,DataMask):
     net.train()
     train_loss = []
     Bath_data_list=[]
@@ -416,8 +380,8 @@ def train(trainloader,net,optimizer,criterion):
     for data_list in trainloader:
         output=net(data_list)
         for data in data_list:
-            target= torch.cat([data.y[data.train_mask]]).to(output.device)
-            loss = criterion(output[data.train_mask], target)
+            target= torch.cat([data.y[DataMask['train_mask']]]).to(output.device)
+            loss = criterion(output[DataMask['train_mask']], target)
            
         loss.backward()
         train_loss.append(loss.item())  
@@ -427,14 +391,15 @@ def train(trainloader,net,optimizer,criterion):
     return train_loss
 
 
-def test(trainloader,net,criterion):
+def test(trainloader,net,criterion,DataMask):
     net.eval()
     test_loss,accs= [],[]
     with torch.no_grad():
         for data_list in trainloader:
             output= net(data_list)
             for data in data_list:
-                for _, mask in data('train_mask', 'val_mask','test_mask'):
+                for  key in DataMask:
+                    mask=DataMask[key] 
                     y = torch.cat([data.y[mask] for data in data_list]).to(output.device)
                     pred= output.max(1)[1][mask]
                     acc=pred.eq(data.y[mask].to(pred.device)).sum().item()/len(data.y[mask])
@@ -461,12 +426,21 @@ def DataSampler(splitcoeffi,dataset_size):
         np.random.seed(random_seed)
         np.random.shuffle(indices)
     train_indices, val_indices,test_indices = indices[:splitTrain], indices[splitTrain:(splitTrain+splitVal)],indices[(-dataset_size+splitTrain+splitVal):]
+    fill=torch.zeros(dataset_size)
+    fill[train_indices]=1
+    train_mask=fill>=1
     
+    fill[val_indices]=1
+    val_mask=fill>=1
+    
+    fill[test_indices]=1
+    test_mask=fill>=1
+
     # Creating PT data samplers and loaders:
     train_sampler = SubsetRandomSampler(train_indices)
     valid_sampler = SubsetRandomSampler(val_indices)
     test_sampler = SubsetRandomSampler(test_indices)
-    return  train_indices, val_indices,test_indices
+    return  train_mask, val_mask,test_mask
 
 def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,optimizerName,LinkPredictionMethod,MonteSize,savepath):
     Batch_size=params[0]
@@ -482,7 +456,12 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         WeightsDynamicsEvolution=[]
         # model 
         if dataset=='Cora' or dataset =='Citeseer' or dataset =='Pubmed':
-            datasetroot= Planetoid(root=root, name=dataset, transform =T.NormalizeFeatures()).shuffle()        
+            datasetroot= Planetoid(root=root, name=dataset,transform =T.NormalizeFeatures()).shuffle()    
+            train_mask, val_mask,test_mask=DataSampler([0.6,0.3],datasetroot.data.num_nodes)
+            DataMask={}
+            DataMask['train_mask']=train_mask
+            DataMask['val_mask']=val_mask
+            DataMask['test_mask']=test_mask
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
             num_features=datasetroot.num_features
             num_classes=datasetroot.num_classes
@@ -491,22 +470,17 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
 
         elif dataset =="CoraFull":
             datasetroot = CoraFull(root=root,transform =T.NormalizeFeatures()).shuffle()
-            train_indices, val_indices,test_indices=DataSampler([0.6,0.3],datasetroot.data.num_nodes)
-            datasetroot.data.x.train_mask=torch.tensor(datasetroot.data.x[train_indices],dtype=torch.long) 
-            datasetroot.data.x.val_mask=torch.tensor(datasetroot.data.x[val_indices],dtype=torch.long) 
-            datasetroot.data.x.train_mask=torch.tensor(datasetroot.data.x[test_indices],dtype=torch.long)  
-            datasetroot.data.y.train_mask=datasetroot.data.y[train_indices]
-            datasetroot.data.y.val_mask=datasetroot.data.y[val_indices]
-            datasetroot.data.y.train_mask=datasetroot.data.y[test_indices]
-            del datasetroot.data.x
-            del datasetroot.data.y
-            trainloader= DataLoader (datasetroot,shuffle=False)
-            #trainloader= DataListLoader(datasetroot, batch_size=100, batch_sampler=valid_sampler,shuffle=True)
-            #trainloader= DataListLoader(datasetroot, batch_size=100, batch_sampler=test_sampler,shuffle=True)
+            train_mask, val_mask,test_mask=DataSampler([0.2,0.4],datasetroot.data.num_nodes)
+            DataMask={}
+            DataMask['train_mask']=train_mask
+            DataMask['val_mask']=val_mask
+            DataMask['test_mask']=test_mask
+            criterion = nn.CrossEntropyLoss()
             num_features=datasetroot.num_features
             num_classes=datasetroot.num_classes
-            
-            
+            trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=False)
+
+
         elif dataset=='ENZYMES' or dataset=='MUTAG':
             datasetroot=TUDataset(root,name=dataset,use_node_attr=True)
             trainloader = DataLoader(datasetroot, batch_size=Batch_size, shuffle=True)
@@ -525,8 +499,6 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             num_features=train_dataset.num_features
             criterion = torch.nn.BCEWithLogitsLoss()
 
-            
-            
         elif dataset =="Reddit":
             datasetroot=Reddit(root)   
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
@@ -571,7 +543,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         mark="{}{}Convergence/DiagElement-{}".format(savepath,dataset,FileName)
         markweights="{}{}Convergence/WeightChanges-{}".format(savepath,dataset,FileName)
                      
-        PreTrainConvergence,PreTestConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,num_classes,                        trainloader,net,optimizer,criterion,NumCutoff,LinkPredictionMethod,VectorPairs,WeightCorrectionCoeffi,StartTopoCoeffi,mark,markweights,model_to_save,False)
+        PreTrainConvergence,PreTestConvergence,PreAcc=TrainPart(start_epoch,num_pre_epochs,num_classes,                        trainloader,net,optimizer,criterion,DataMask,NumCutoff,LinkPredictionMethod,VectorPairs,WeightCorrectionCoeffi,StartTopoCoeffi,mark,markweights,model_to_save,False)
         print('dataset: {}, model name:{}, epoch:{},Pre-train error:{}; Pre-test error:{}; test acc:{}'.format(dataset,modelName,num_pre_epochs,PreTrainConvergence[-1],PreTestConvergence[-1],PreAcc))
 
         NewNetworksize=RetainNetworkSize(net,params[2])
@@ -590,7 +562,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], momentum=0.9, weight_decay=5e-4)
         elif optimizerName =="Adam":
             optimizerNew = getattr(optim,optimizerName)(OptimizedNet.parameters(), lr=params[3], betas=(0.9, 0.999), eps=1e-08, weight_decay=5e-4, amsgrad=False)
-        TrainConvergence,TestConvergence,TestAcc=TrainPart(start_epoch,num_epochs,datasetroot.num_classes, trainloader,OptimizedNet,optimizerNew,criterion,
+        TrainConvergence,TestConvergence,TestAcc=TrainPart(start_epoch,num_epochs,datasetroot.num_classes, trainloader,OptimizedNet,optimizerNew,criterion,DataMask,
                                                                    NumCutoff,LinkPredictionMethod,VectorPairs,WeightCorrectionCoeffi,StartTopoCoeffi,mark,markweights,model_to_save,True)
         np.save("{}/{}Convergence/AlgebraicConectivityTrainConvergence-{}".format(savepath,dataset,FileName),TrainConvergence)
         np.save("{}/{}Convergence/AlgebraicConectivityTestConvergence-{}".format(savepath,dataset,FileName),TestConvergence)
