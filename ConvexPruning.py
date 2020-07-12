@@ -251,7 +251,7 @@ class AGNNNet(torch.nn.Module):
         return F.log_softmax(x, dim=1)    
 
 class ChebConvNet(torch.nn.Module):
-    def __init__(self,num_classes,width):
+    def __init__(self,num_features,num_classes,width):
         self.NumLayers=len(width)
         super(ChebConvNet,self).__init__()
         self.layers = nn.ModuleList()
@@ -454,10 +454,11 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         # Data
         NewNetworkSizeAdjust=[]
         WeightsDynamicsEvolution=[]
+        trainValRatio=[0.2,0.4]
         # model 
         if dataset=='Cora' or dataset =='Citeseer' or dataset =='Pubmed':
             datasetroot= Planetoid(root=root, name=dataset,transform =T.NormalizeFeatures()).shuffle()    
-            train_mask, val_mask,test_mask=DataSampler([0.6,0.3],datasetroot.data.num_nodes)
+            train_mask, val_mask,test_mask=DataSampler(trainValRatio,datasetroot.data.num_nodes)
             DataMask={}
             DataMask['train_mask']=train_mask
             DataMask['val_mask']=val_mask
@@ -470,7 +471,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
 
         elif dataset =="CoraFull":
             datasetroot = CoraFull(root=root,transform =T.NormalizeFeatures()).shuffle()
-            train_mask, val_mask,test_mask=DataSampler([0.1,0.4],datasetroot.data.num_nodes)
+            train_mask, val_mask,test_mask=DataSampler(trainValRatio,datasetroot.data.num_nodes)
             DataMask={}
             DataMask['train_mask']=train_mask
             DataMask['val_mask']=val_mask
