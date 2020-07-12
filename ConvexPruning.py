@@ -470,7 +470,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
 
         elif dataset =="CoraFull":
             datasetroot = CoraFull(root=root,transform =T.NormalizeFeatures()).shuffle()
-            train_mask, val_mask,test_mask=DataSampler([0.2,0.4],datasetroot.data.num_nodes)
+            train_mask, val_mask,test_mask=DataSampler([0.1,0.4],datasetroot.data.num_nodes)
             DataMask={}
             DataMask['train_mask']=train_mask
             DataMask['val_mask']=val_mask
