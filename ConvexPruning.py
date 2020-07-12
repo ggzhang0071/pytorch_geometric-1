@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
-from torch_geometric.data import DataListLoader,DataLoader
+from torch_geometric.data import DataListLoader,DataLoader,Data
 from torch.utils.data import SubsetRandomSampler
 import statistics
 import torchvision
@@ -466,7 +466,7 @@ def DataSampler(splitcoeffi,dataset_size):
     train_sampler = SubsetRandomSampler(train_indices)
     valid_sampler = SubsetRandomSampler(val_indices)
     test_sampler = SubsetRandomSampler(test_indices)
-    return train_sampler,valid_sampler,test_sampler
+    return  train_indices, val_indices,test_indices
 
 def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,optimizerName,LinkPredictionMethod,MonteSize,savepath):
     Batch_size=params[0]
@@ -491,7 +491,15 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
 
         elif dataset =="CoraFull":
             datasetroot = CoraFull(root=root,transform =T.NormalizeFeatures()).shuffle()
-            train_sampler,valid_sampler,test_sampler=DataSampler([0.6,0.3],datasetroot.data.num_nodes)
+            train_indices, val_indices,test_indices=DataSampler([0.6,0.3],datasetroot.data.num_nodes)
+            datasetroot.data.x.train_mask=torch.tensor(datasetroot.data.x[train_indices],dtype=torch.long) 
+            datasetroot.data.x.val_mask=torch.tensor(datasetroot.data.x[val_indices],dtype=torch.long) 
+            datasetroot.data.x.train_mask=torch.tensor(datasetroot.data.x[test_indices],dtype=torch.long)  
+            datasetroot.data.y.train_mask=datasetroot.data.y[train_indices]
+            datasetroot.data.y.val_mask=datasetroot.data.y[val_indices]
+            datasetroot.data.y.train_mask=datasetroot.data.y[test_indices]
+            del datasetroot.data.x
+            del datasetroot.data.y
             trainloader= DataLoader (datasetroot,shuffle=False)
             #trainloader= DataListLoader(datasetroot, batch_size=100, batch_sampler=valid_sampler,shuffle=True)
             #trainloader= DataListLoader(datasetroot, batch_size=100, batch_sampler=test_sampler,shuffle=True)
