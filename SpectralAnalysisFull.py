@@ -294,18 +294,6 @@ def FindDuplicated(a):
             duplicated.add(a[i])
     return duplicated
 
-
-def PartitionDict(listone,partition,lab):
-    addnode=0
-    duplicated=0
-    for node in listone:
-        if node in partition:
-            print("New dict is {}, old dict is {}".format({node:lab},{node:partition[node]}))
-            duplicated+=1
-        else:
-            partition.update({node:lab})
-            addnode+=1
-    return partition, addnode,duplicated
     
 
 def WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,GraphPartitionVisualization,
@@ -350,33 +338,43 @@ def WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,GraphParti
             iter1=0
             while len(G_array) < num_classes and iter1<math.floor(math.log(num_classes,2))+1:
                 G_array_tmp=[]
-                partition,PartitionResults={},{}
-                lab,tmp1=0,0
+                PartitionResults={}
+                lab=0
+                tmp1=0
+                partition={}
                 for iter2 in range(len(G_array)):
+                    if len(G_array)==2 and iter2==0:
+                        #pdb.set_trace()
+                        pass
+                    print("iter :",iter2)
                     if G_array[iter2].number_of_edges()>0:
                         Gsub=Fiedler_vector_cluster(G_array[iter2],0+2*iter2)
                         for i in range(len(Gsub)):
+                            print(iter2,i,Gsub[i].number_of_edges(),Gsub[i].number_of_nodes(),
+                                      Gsub[i].number_of_nodes()/G.number_of_nodes())
+                                #pdb.set_trace()
+
                             G_array_tmp.append(Gsub[i])
                             tmp1+=len(list(Gsub[i].nodes))
-                            partitionOld=partition
-                            print("subgraph node size is",Gsub[i].number_of_nodes())
                             PartitionResults.update({lab:list(Gsub[i].nodes)})
-                            partition,kk,duplicated= PartitionDict(list(Gsub[i].nodes),partition,lab)
-                            print("is equal 3",len(partition),tmp1)
-                            if len(partition)!=tmp1 or kk!=Gsub[i].number_of_nodes():
-                                print(iter2,i,lab,Gsub[i].number_of_nodes(),
-                                      Gsub[i].number_of_nodes()/G.number_of_nodes())
-                                pdb.set_trace()
-                                print("here wrong",tmp1-len(partition))
-                                partition,kk= PartitionDict(Gsub[i],partitionOld,lab)
+                           
+            
+                            for node in Gsub[i].nodes:
+                                if node in partition:
+                                    "New dict is {}, old dict is {}".format({node:lab},{node,partition[node]})
+                                partition.update({node:lab})
+                            print("partition num is:",len(PartitionResults))
                             lab+=1
+                            
                     else:
-                        PartitionResults.update({lab:list(G_array[iter2].nodes)})
-                        partition,kk= PartitionDict(Gsub,partition,lab)
-                        if kk!=Gsub[i].number_of_nodes():
-                            pdb.set_trace()
-                            print("here")
+                        tmp1+=len(list(G_array[iter2].nodes))
+                        PartitionResults.update({k:list(G_array[iter2].nodes)})
+                        for node in G_array[iter2].nodes:
+                            if node in partition:
+                                    "New dict is {}, old dict is {}".format({node:lab},{node,partition[node]})
+                            partition.update({node:lab})
                         lab+=1
+                        print("The graph is no edge")
                 print("is equal 1",tmp1==G.number_of_nodes())
                 if (tmp1==G.number_of_nodes())==False:
                     pdb.set_trace()
