@@ -17,7 +17,9 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
         parts=round(len(coefficients)/2)
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
-            for file in glob.glob("{}*{}*{}*{}*{}*{}*{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[i],coefficientsSecond[0],coefficientsThree[0],coefficientsFour[0])):
+            FileNames="{}*{}*{}*{}_{}*{}*{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[i],coefficientsSecond[0],coefficientsThree[0],coefficientsFour[0])
+            print(FileNames)
+            for file in glob.glob(FileNames):
                 print(file)
                 TrainConvergence=np.load(file).tolist()
                 if max(TrainConvergence)>20:
@@ -30,18 +32,17 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
             standard_dev = np.array(TrainConvergenceAll).std(axis=0)
             
             if i<parts:
-                plt.plot(x[start_plot:start_plot+epochs],mu[start_plot:start_plot+epochs], lw=1.5)
+                plt.plot(x,mu[start_plot:start_plot+epochs], lw=1.5)
                 
             else:
-                plt.plot(x[start_plot:start_plot+epochs],mu[start_plot:start_plot+epochs],'--', lw=1.5)
+                plt.plot(x,mu[start_plot:start_plot+epochs],'--', lw=1.5)
             
-            #plt.fill_between(x[start_plot:start_plot+epochs], (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],alpha=0.5)   
+            #plt.fill_between(x, (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],alpha=0.5)   
  
             
     elif len(coefficientsSecond)>1:
         coefficients=coefficientsSecond
         parts=round(len(coefficients)/2)
-        plt.style.use('seaborn-darkgrid')  
 
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
