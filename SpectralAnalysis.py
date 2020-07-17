@@ -216,26 +216,25 @@ def Compute_fiedler_vector(G):
 
 def Fiedler_vector_cluster(G,startClassi):
     algebraic_connectivity, fiedler_vector=Compute_fiedler_vector(G)
-    PartOne=[]
-    PartTwo=[]
+    PartOne,PartTwo=[],[]
     for node in range(G.number_of_nodes()):
         if fiedler_vector[node].item()<0:
             PartOne.append(node)
         else:
             PartTwo.append(node)
     PartitionResults={startClassi+0:PartOne,startClassi+1:PartTwo}
-    G1=nx.Graph()
-    G2=nx.Graph()
-    G1.add_nodes_from(PartOne)
-    G2.add_nodes_from(PartTwo)
-    for (i,j) in G.edges():
-        if i in G1.nodes() and j in G1.nodes():
-            G1.add_edge(i,j)
-            
-    for (i,j) in G.edges():
-        if i in G2.nodes() and j in G2.nodes():
-            G2.add_edge(i,j)
-    return [G1,G2]
+    TwoGraphs=[PartOne,PartTwo]
+    bipartiteGraph=[]
+    for i in range(2):
+        subG=nx.Graph()
+        subG.subgraph(TwoGraphs[i])
+        if subG.number_of_edges()==0:
+            pass
+        else:
+            bipartiteGraph.append(subG)
+    if len(bipartiteGraph)==0:
+        bipartiteGraph=[G]
+    return bipartiteGraph
 
 
 def chooseSemiMatrix(Weight,locx,M):
@@ -351,70 +350,31 @@ def WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,GraphParti
             while len(G_array) < num_classes and iter1<math.floor(math.log(num_classes,2))+1:
                 G_array_tmp=[]
                 partition,PartitionResults={},{}
-                lab,tmp1=0,0
+                lab=0
                 for iter2 in range(len(G_array)):
                     if G_array[iter2].number_of_edges()>0:
                         Gsub=Fiedler_vector_cluster(G_array[iter2],0+2*iter2)
                         for i in range(len(Gsub)):
                             G_array_tmp.append(Gsub[i])
-                            tmp1+=len(list(Gsub[i].nodes))
-                            partitionOld=partition
-                            print("subgraph node size is",Gsub[i].number_of_nodes())
                             PartitionResults.update({lab:list(Gsub[i].nodes)})
                             partition,kk,duplicated= PartitionDict(list(Gsub[i].nodes),partition,lab)
-                            print("is equal 3",len(partition),tmp1)
-                            """if len(partition)!=tmp1 or kk!=Gsub[i].number_of_nodes():
-                                print(iter2,i,lab,Gsub[i].number_of_nodes(),
-                                      Gsub[i].number_of_nodes()/G.number_of_nodes())
-                                pdb.set_trace()
-                                print("here wrong",tmp1-len(partition))
-                                partition,kk= PartitionDict(Gsub[i],partitionOld,lab)"""
                             lab+=1
                     else:
                         PartitionResults.update({lab:list(G_array[iter2].nodes)})
-                        partition,kk= PartitionDict(Gsub,partition,lab)
-                        """if kk!=Gsub[i].number_of_nodes():
-                            pdb.set_trace()
-                            print("here")"""
+                        partition,kk,duplicated= PartitionDict(Gsub,partition,lab)
                         lab+=1
-                print("is equal 1",tmp1==G.number_of_nodes())
-                """if (tmp1==G.number_of_nodes())==False:
-                    pdb.set_trace()
-                    print("here")
-                if (len(partition)==G.number_of_nodes())==False:
-                    print(G.number_of_nodes()-len(partition))
-                    pdb.set_trace()"""
-
-
                 iter1+=1
                 G_array=G_array_tmp    
-          
-            
-            """partitionNew={}
-            tmp2=0
-            elements=[]
-            for key in PartitionResults:
-                elements=elements+PartitionResults[key]
-                duplicated=FindDuplicated(elements)
-                if len(duplicated)>0:
-                    print("{} becomes duplicated num is {}:".format(key,len(duplicated),duplicated))
-                for value in PartitionResults[key]:
-                    partitionNew.update({value: key})
-                tmp2+=len(PartitionResults[key])
-                print("is equal 2",tmp2==len(partitionNew))
-                if (tmp2==len(partitionNew))==False:
-                    print(tmp2-len(partitionNew))
-                    pdb.set_trace()"""
-
-
             ### saving
-            fwC=open(classiResultsFiles,'wb')
-            pickle.dump(PartitionResults,fwC)
-
-            fwG=open(GraphResultsFiles,'wb')
-            pickle.dump(G,fwG)
             predLinkWeight=WeightedLinkPrediction(G,PartitionResults,LinkPredictionMethod,VectorPairs)
             np.save(PredAddEdgeResults,predLinkWeight)
+            if len(G_array)>4:
+                fwC=open(classiResultsFiles,'wb')
+                pickle.dump(partition,fwC)
+
+                fwG=open(GraphResultsFiles,'wb')
+                pickle.dump(G,fwG)
+ 
             
     if len(predLinkWeight)==0:
         pass
@@ -467,14 +427,11 @@ def power_iteration(A):
     while True:
         Av = A.dot(v)
         v_new = Av / np.linalg.norm(Av)
-
         ev_new = eigenvalue(A, v_new)
         if np.abs(ev - ev_new) < 0.01:
             break
-
         v = v_new
         ev = ev_new
-
     return ev_new, v_new
 
 def UpdateWeights(net,Parition_array):
