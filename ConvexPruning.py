@@ -55,7 +55,7 @@ def TrainPart(start_epoch,num_epochs,num_classes,trainloader,OptimizedNet,optimi
             """NewNetworkWeight=RetainNetworkSize(OptimizedNet,params[2])[1]
             torch.save(NewNetworkWeight[0:-1],"{}-{}.pt".format(markweights,epoch))"""
 
-        if epoch>num_epochs*StartTopoCoeffi and epoch<num_epochs*0.9 and epoch%20==0 and TrainFlag==True:
+        if epoch>num_epochs*StartTopoCoeffi and epoch<num_epochs*0.5 and epoch%20==0 and TrainFlag==True:
             classiResultsFiles="Results/PartitionResults/{}-{}-oneClassNodeEpoch_{}.pkl".format(dataset,modelName,str(epoch))
             GraphResultsFiles="Results/PartitionResults/{}-{}-GraphEpoch_{}.pkl".format(dataset,modelName,str(epoch))
             PredAddEdgeResults="Results/PartitionResults/{}-{}-AddEdgesEpoch_{}-VectorPairs_{}.npy".format(dataset,modelName,str(epoch),str(VectorPairs))
@@ -449,6 +449,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
     VectorPairs=params[4]
     StartTopoCoeffi=params[5]
     WeightCorrectionCoeffi=params[6]
+    interval=params[7]
     root='/git/data/GraphData/'+dataset
     TestAccs=[]
     
@@ -526,7 +527,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
         
         width=ContractionLayerCoefficients(num_features,*params[1:3])
         net =ChooseModel(modelName,num_features,num_classes,width)    
-        FileName="{}-{}-param_{}_{}_{}_{}-monte_{}".format(dataset,modelName,Batch_size,WeightCorrectionCoeffi,StartTopoCoeffi,VectorPairs,Monte_iter)
+        FileName="{}-{}-param_{}_{}_{}_{}-monte_{}".format(dataset,modelName,interval,WeightCorrectionCoeffi,StartTopoCoeffi,VectorPairs,Monte_iter)
         print('Let\'s use', torch.cuda.device_count(), 'GPUs!')
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         criterion = criterion.to(device)
@@ -582,14 +583,15 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
 
 if __name__=="__main__":   
     parser = argparse.ArgumentParser(description='PyTorch Training')
-    parser.add_argument('--dataset',default='Cora',type=str, help='dataset to train')
+    parser.add_argument('--dataset',default='Pubmed',type=str, help='dataset to train')
     parser.add_argument('--modelName',default='GCN',type=str, help='model to use')
     parser.add_argument('--LR', default=0.5, type=float, help='learning rate') 
     parser.add_argument('--ConCoeff', default=0.99, type=float, help='contraction coefficients')
     parser.add_argument('--NumCutoff', default=5, type=float, help='contraction coefficients')
     parser.add_argument('--WindowSize', default=3, type=float, help='Window size for network correction')
     parser.add_argument('--VectorPairs',default=1,type=int, help='Vector pair')
-    parser.add_argument('--StartTopoCoeffi',default=0.6,type=float, help='Start regularization coefficient')
+    parser.add_argument('--interval', default=20, type=int, help='interval to link correction')
+    parser.add_argument('--StartTopoCoeffi',default=0.3,type=float, help='Start regularization coefficient')
     parser.add_argument('--WeightCorrectionCoeffi',default=0.1,type=float, help='Weight correction coefficient')
     parser.add_argument('--rho', type=float, default=1e-2, metavar='R',
                         help='cardinality weight (default: 1e-2)')
@@ -619,7 +621,7 @@ if __name__=="__main__":
     resume=args.resume
     save_recurrence_plots=args.save_recurrence_plots
     #params=[args.Batch_size,args.NumLayers,args.args.ConCoeff,args.CutoffCoeff]
-    params=[args.Batch_size,args.NumLayers,args.ConCoeff,args.LR,args.VectorPairs,args.StartTopoCoeffi,args.WeightCorrectionCoeffi]
+    params=[args.Batch_size,args.NumLayers,args.ConCoeff,args.LR,args.VectorPairs,args.StartTopoCoeffi,args.WeightCorrectionCoeffi,args.interval]
     global modelName
     modelName=args.modelName
     global dataset

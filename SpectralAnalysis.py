@@ -363,27 +363,27 @@ def WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,GraphParti
                             PartitionResults.update({lab:list(Gsub[i].nodes)})
                             partition,kk,duplicated= PartitionDict(list(Gsub[i].nodes),partition,lab)
                             print("is equal 3",len(partition),tmp1)
-                            if len(partition)!=tmp1 or kk!=Gsub[i].number_of_nodes():
+                            """if len(partition)!=tmp1 or kk!=Gsub[i].number_of_nodes():
                                 print(iter2,i,lab,Gsub[i].number_of_nodes(),
                                       Gsub[i].number_of_nodes()/G.number_of_nodes())
                                 pdb.set_trace()
                                 print("here wrong",tmp1-len(partition))
-                                partition,kk= PartitionDict(Gsub[i],partitionOld,lab)
+                                partition,kk= PartitionDict(Gsub[i],partitionOld,lab)"""
                             lab+=1
                     else:
                         PartitionResults.update({lab:list(G_array[iter2].nodes)})
                         partition,kk= PartitionDict(Gsub,partition,lab)
-                        if kk!=Gsub[i].number_of_nodes():
+                        """if kk!=Gsub[i].number_of_nodes():
                             pdb.set_trace()
-                            print("here")
+                            print("here")"""
                         lab+=1
                 print("is equal 1",tmp1==G.number_of_nodes())
-                if (tmp1==G.number_of_nodes())==False:
+                """if (tmp1==G.number_of_nodes())==False:
                     pdb.set_trace()
                     print("here")
                 if (len(partition)==G.number_of_nodes())==False:
                     print(G.number_of_nodes()-len(partition))
-                    pdb.set_trace()
+                    pdb.set_trace()"""
 
 
                 iter1+=1
