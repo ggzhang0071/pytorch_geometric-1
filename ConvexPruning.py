@@ -55,7 +55,7 @@ def TrainPart(start_epoch,num_epochs,num_classes,trainloader,OptimizedNet,optimi
             """NewNetworkWeight=RetainNetworkSize(OptimizedNet,params[2])[1]
             torch.save(NewNetworkWeight[0:-1],"{}-{}.pt".format(markweights,epoch))"""
 
-        if epoch>num_epochs*StartTopoCoeffi and epoch<num_epochs*0.5 and epoch%20==0 and TrainFlag==True:
+        if epoch>num_epochs*StartTopoCoeffi and epoch<num_epochs*1 and epoch%20==0 and TrainFlag==True:
             classiResultsFiles="Results/PartitionResults/{}-{}-oneClassNodeEpoch_{}.pkl".format(dataset,modelName,str(epoch))
             GraphResultsFiles="Results/PartitionResults/{}-{}-GraphEpoch_{}.pkl".format(dataset,modelName,str(epoch))
             PredAddEdgeResults="Results/PartitionResults/{}-{}-AddEdgesEpoch_{}-VectorPairs_{}.npy".format(dataset,modelName,str(epoch),str(VectorPairs))
@@ -63,8 +63,6 @@ def TrainPart(start_epoch,num_epochs,num_classes,trainloader,OptimizedNet,optimi
             OptimizedNet=WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,GraphPartitionVisualization,OptimizedNet,PredAddEdgeResults,
                                           LinkPredictionMethod,VectorPairs,WeightCorrectionCoeffi,False)
             TrainLoss=train(trainloader,OptimizedNet,optimizerNew,criterion)
-            
-
             
         else:
             SVDOrNot=[]
@@ -388,8 +386,6 @@ def train(trainloader,net,optimizer,criterion):
         loss.backward()
         train_loss.append(loss.item())  
         optimizer.step()
-
- 
     return train_loss
 
 
@@ -463,7 +459,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             datasetroot= Planetoid(root=root, name=dataset,transform =T.NormalizeFeatures()).shuffle()    
             trainloader = DataListLoader(datasetroot, batch_size=Batch_size, shuffle=True)
 
-            """train_mask, val_mask,test_mask=DataSampler(trainValRatio,datasetroot.data.num_nodes)
+            """            train_mask, val_mask,test_mask=DataSampler(trainValRatio,datasetroot.data.num_nodes)
             DataMask={}
             DataMask['train_mask']=train_mask
             DataMask['val_mask']=val_mask
@@ -472,7 +468,7 @@ def TrainingNet(dataset,modelName,params,num_pre_epochs,num_epochs,NumCutoff,opt
             num_features=datasetroot.num_features
             num_classes=datasetroot.num_classes
             criterion = nn.CrossEntropyLoss()
-  
+
 
         elif dataset =="CoraFull":
             datasetroot = CoraFull(root=root,transform =T.NormalizeFeatures()).shuffle()

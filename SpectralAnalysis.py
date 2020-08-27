@@ -15,6 +15,7 @@ from torch.utils.dlpack import from_dlpack, to_dlpack
 from cupy.core.dlpack import toDlpack,fromDlpack
 import link_prediction as lp
 from collections import defaultdict
+from torch_cluster import graclus_cluster
 import pdb
 
 
@@ -54,6 +55,7 @@ def WeightsToAdjaency(Weights,startNodeNums):
     G.remove_nodes_from(list(nx.isolates(G)))"""
     GWeight=GWeight.to_undirected()
     G1=G1.to_undirected()
+
     return GWeight,G1
 
 
@@ -256,7 +258,7 @@ def WeightedLinkPrediction(G,cluters,LinkPredictionMethod,VectorPairs):
         oneClassNodes=cluters[OneClassi]
         SubGraph=nx.Graph()
         SubGraph.add_nodes_from(oneClassNodes)
-        #l
+        #
         for (i,j) in G.edges:
             if (i in SubGraph.nodes()) and (j in SubGraph.nodes()) and 'weight' in G.get_edge_data(i,j):
                     SubGraph.add_weighted_edges_from([(i,j,G.get_edge_data(i,j)['weight'])])
@@ -344,9 +346,22 @@ def WeightCorrection(classiResultsFiles,num_classes,GraphResultsFiles,GraphParti
             Gu= nx.compose(Gragh_unwighted_array[0],Gragh_unwighted_array[1])
             L=nx.adjacency_matrix(G)
             incidence_matrix=nx.incidence_matrix(Gu)
+            StartNodes,EndNodes,Edges,EdgeWeights=[],[],[],[]
+            for edges in G.edges():
+                if 'weight' in G.get_edge_data(edges[0],edges[1]):
+                    StartNodes.append(edges[0])
+                    EndNodes.append(edges[1])
+                    Edges.append(list(edges))
+                    EdgeWeights.append(G[edges[0]][edges[1]]['weight'])
+            cluster=graclus_cluster(torch.tensor(StartNodes),torch.tensor(EndNodes),torch.tensor(EdgeWeights))
+            print("cluster num is",len(set(cluster.tolist())))
             #comps=nx.connected_components(G)
+            #
+            
+            #
             G_array=[G]
             iter1=0
+            
             while len(G_array) < num_classes and iter1<math.floor(math.log(num_classes,2))+1:
                 G_array_tmp=[]
                 partition,PartitionResults={},{}
