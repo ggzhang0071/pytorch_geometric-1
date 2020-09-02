@@ -1,16 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import os,glob
-import seaborn as sns
-import matplotlib.style as style 
-style.available
-sns.set_context('paper')
-sns.set()
-plt.style.use('seaborn-darkgrid')  
+import pdb
+colors=[(248/255,25/255,25/255),(40/255,172/255,82/255),(161/255,80/255,159/255),(0/255,127/255,182/255)]
 
-def PlotNetworkContractionNpy(dataset,modelName,file_constraited,coefficientsFirst,coefficientsSecond,coefficientsThree,coefficientsFour,save_png_name,start_plot,epochs,*args):
+def PlotNetworkContractionNpy(dataset,modelName,file_constraited,coefficientsFirst,coefficientsSecond,coefficientsThree,coefficientsFour,start_plot,epochs,*args):
     Legend=args
-
     if len(coefficientsFirst)>1:
         coefficients=coefficientsFirst
         parts=round(len(coefficients)/2)
@@ -24,7 +19,7 @@ def PlotNetworkContractionNpy(dataset,modelName,file_constraited,coefficientsFir
             mu = np.array(TrainConvergenceAll).mean(axis=0)
             print("contraction coefficients is :{}".format(mu))
             standard_dev = np.array(TrainConvergenceAll).std(axis=0)
-            plt.plot(mu, lw=1.5)
+            plt.plot(mu, lw=2)
             plt.fill_between((mu-standard_dev),(mu+standard_dev),alpha=0.5)  
 
     elif len(coefficientsSecond)>1:
@@ -42,16 +37,13 @@ def PlotNetworkContractionNpy(dataset,modelName,file_constraited,coefficientsFir
             mu = np.array(TrainConvergenceAll).mean(axis=0).tolist()[0]
             standard_dev = np.array(TrainConvergenceAll).std(axis=0).tolist()[0]
             if i<parts:
-                plt.plot(x,mu, lw=1.5)
+                plt.plot(x,mu, c=colors[i], lw=2)
                 
             else:
-                plt.plot(x,mu,'--', lw=1.5)
+                plt.plot(x,mu,'--', c=colors[i], lw=2)
             #plt.fill_between((mu-standard_dev),(mu+standard_dev),alpha=0.5)  
-            
 
-    plt.xlabel('Depth')
-    plt.ylabel('Width')
+            
     plt.legend(tuple(Legend))
-    plt.savefig(save_png_name,dpi=600)
 
 #def PlotMonteCalorsTimesConvergencePth(coefficients,file_path,parts,save_png_name,start_plot):

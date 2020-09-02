@@ -1,15 +1,29 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import os,glob
-import seaborn as sns
-import matplotlib.style as style 
-style.available
-sns.set_context('paper')
-sns.set()
+from matplotlib.colors import ListedColormap
+import matplotlib as mpl
+import pdb
+
+"""
+print(mpl.rcParmas)
+mpl.rcParmas['font.family']="Times New Roman"
+mpl.rcParmas['lines.width']=2
+mpl.rcParmas['figure.figsize']=8,6"""
+
+colors=[(248/255,25/255,25/255),(40/255,172/255,82/255),(161/255,80/255,159/255),(0/255,127/255,182/255)]
+#colors=["#fc8d59","#ffffbf","#91cf60"]
+camp=ListedColormap(colors)
+font = {'family' : 'Times New Roman',
+        'weight' : 'bold',
+        'size'   : 60}
+
+mpl.rc('font', **font)
+
 
 
 def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coefficientsFirst,
-                                       coefficientsSecond,coefficientsThree,coefficientsFour,save_png_name,start_plot,epochs,*args):
+                                       coefficientsSecond,coefficientsThree,coefficientsFour,start_plot,epochs,*args):
     Legend=args
     x=np.linspace(start_plot,start_plot+epochs-1,num=epochs).tolist()
     if len(coefficientsFirst)>1:
@@ -32,12 +46,12 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
             standard_dev = np.array(TrainConvergenceAll).std(axis=0)
             
             if i<parts:
-                plt.plot(x,mu[start_plot:start_plot+epochs], lw=1.5)
+                plt.plot(x,mu[start_plot:start_plot+epochs], c=colors[i],lw=2)
                 
             else:
-                plt.plot(x,mu[start_plot:start_plot+epochs],'--', lw=1.5)
+                plt.plot(x,mu[start_plot:start_plot+epochs],'--', c=colors[i],lw=2)
             
-            #plt.fill_between(x, (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],alpha=0.5)   
+            plt.fill_between(x, (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],facecolor=colors[i],alpha=0.5)   
  
             
     elif len(coefficientsSecond)>1:
@@ -56,22 +70,24 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
                     os.remove(file)
                 if len(TrainConvergence)>40 and max(TrainConvergence)<=4040:
                     TrainConvergenceAll.append(TrainConvergence)
-            print("coefficient of {} num is: {}".format(coefficients[i],len(TrainConvergenceAll)))            
+            print("coefficient of {} num is: {}".format(coefficients[i],len(TrainConvergenceAll)))   
+            if not TrainConvergenceAll:
+                continue
             mu = np.array(TrainConvergenceAll).mean(axis=0)
             standard_dev = np.array(TrainConvergenceAll).std(axis=0)
             
             if i<parts:
-                plt.plot(x,mu[start_plot:start_plot+epochs], lw=1.5)
+            
+                plt.plot(x,mu[start_plot:start_plot+epochs], c=colors[i],lw=2)
                 
             else:
-                plt.plot(x,mu[start_plot:start_plot+epochs],'--', lw=1.5)
+                plt.plot(x,mu[start_plot:start_plot+epochs],'--',c=colors[i],lw=2)
             
             #plt.fill_between(x, (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],alpha=0.5)  
             
     elif len(coefficientsThree)>1:
         coefficients=coefficientsThree
         parts=round(len(coefficients)/2)
-        plt.style.use('seaborn-darkgrid')  
 
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
@@ -90,17 +106,16 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
             standard_dev = np.array(TrainConvergenceAll).std(axis=0)
             
             if i<parts:
-                plt.plot(x,mu[start_plot:start_plot+epochs], lw=1.5)
+                plt.plot(x,mu[start_plot:start_plot+epochs], c=colors[i],lw=2)
                 
             else:
-                plt.plot(x,mu[start_plot:start_plot+epochs],'--', lw=1.5)
+                plt.plot(x,mu[start_plot:start_plot+epochs],'--', lc=colors[i],lw=2)
             
-            #plt.fill_between(x, (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],alpha=0.5)   
+            plt.fill_between(x, (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],facecolor=colors[i],alpha=0.5)   
      
     elif len(coefficientsFour)>1:
         coefficients=coefficientsFour
         parts=round(len(coefficients)/2)
-        plt.style.use('seaborn-darkgrid')  
 
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
@@ -126,21 +141,17 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
             np.save(saveMeanStd,[mu,standard_dev])
             
             if i<parts:
-                plt.plot(x,mu[start_plot:start_plot+epochs], lw=1.5)
+                plt.plot(x,mu[start_plot:start_plot+epochs], c=colors[i],lw=2)
                 
             else:
-                plt.plot(x,mu[start_plot:start_plot+epochs],'--', lw=1.5)
+                plt.plot(x,mu[start_plot:start_plot+epochs],'--',c=colors[i],lw=2)
             
-            plt.fill_between(x, (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],alpha=0.5)   
+            plt.fill_between(x, (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],facecolor=colors[i],alpha=0.5)   
 
         
     else:
         raise Exception ("Wrong input, please check")
-    
-    plt.style.use('seaborn-darkgrid')  
-    plt.xlabel('Epoches')
-    plt.ylabel('Test error')
+    plt.style.use(['science','seaborn-white','no-latex'])
     plt.legend(tuple(Legend))
-    plt.savefig(save_png_name,dpi=600)
 
-# def PlotMonteCalorsTimesConvergencePth(coefficients,file_path,parts,save_png_name,start_plot):
+# def PlotMonteCalorsTimesConvergencePth(coefficients,file_path,parts,start_plot):
