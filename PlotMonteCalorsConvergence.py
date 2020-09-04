@@ -59,7 +59,7 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
 
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
-            FileNames="{}-{}*{}*{}*{}*{}*{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[i],coefficientsThree[0],coefficientsFour[0])
+            FileNames="{}-{}*{}*{}_{}_{}_{}*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[i],coefficientsThree[0],coefficientsFour[0])
             print(FileNames)
             for file in glob.glob(FileNames):
                 print(file)
@@ -72,15 +72,13 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
             print("coefficient of {} num is: {}".format(coefficients[i],len(TrainConvergenceAll)))            
             mu = np.array(TrainConvergenceAll).mean(axis=0)
             standard_dev = np.array(TrainConvergenceAll).std(axis=0)
-            
             if i<parts:
                 plt.plot(x,mu[start_plot:start_plot+epochs], c=colors[i],lw=1.5)
                 
-            else:
+            elif i>=parts :
                 plt.plot(x,mu[start_plot:start_plot+epochs],'--', c=colors[i],lw=1.5)
             
-            plt.fill_between(x, (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],facecolor=colors[i],alpha=0.5)  
-            
+            #plt.fill_between(x, (mu-standard_dev)[start_plot:start_plot+epochs],(mu+standard_dev)[start_plot:start_plot+epochs],facecolor=colors[i],alpha=0.5)  
             
     elif len(coefficientsThree)>1:
         coefficients=coefficientsThree
@@ -101,7 +99,8 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
             print("coefficient of {} num is: {}".format(coefficients[i],len(TrainConvergenceAll)))            
             mu = np.array(TrainConvergenceAll).mean(axis=0)
             standard_dev = np.array(TrainConvergenceAll).std(axis=0)
-            
+            if mu.any():
+                continue
             if i<parts:
                 plt.plot(x,mu[start_plot:start_plot+epochs], c=colors[i],lw=2)
                 
@@ -113,7 +112,7 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
     elif len(coefficientsFour)>1:
         coefficients=coefficientsFour
         parts=round(len(coefficients)/2)
-
+        #pdb.set_trace()
         for i in range(len(coefficients)):
             TrainConvergenceAll=[]
             FileFolder="{}*{}*{}*{}*{}*{}_{}-*.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[0],coefficientsThree[0],coefficientsFour[i])
@@ -136,7 +135,8 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
             standard_dev = np.array(TrainConvergenceAll).std(axis=0)
             saveMeanStd="{}MeanAndStd-{}-{}-{}-{}-{}-{}.npy".format(file_constraited,dataset,modelName,coefficientsFirst[0],coefficientsSecond[0],coefficientsThree[0],coefficientsFour[i])
             np.save(saveMeanStd,[mu,standard_dev])
-            
+
+            #pdb.set_trace()
             if i<parts:
                 plt.plot(x,mu[start_plot:start_plot+epochs], c=colors[i],lw=2)
                 
@@ -149,6 +149,6 @@ def PlotMonteCalorsTimesConvergenceNpy(dataset,modelName,file_constraited,coeffi
     else:
         raise Exception ("Wrong input, please check")
     plt.style.use(['science','seaborn-white','no-latex'])
-    plt.legend(tuple(Legend))
+    #plt.legend(tuple(Legend))
 
 # def PlotMonteCalorsTimesConvergencePth(coefficients,file_path,parts,start_plot):
